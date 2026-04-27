@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>天衍九州：虛數輪迴 | AI 交互式敘事引擎</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@400;700&family=Jost:wght@300;400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="premium-dark">
+  <div class="app-container">
+    <!-- 背景特效 -->
+    <div class="bg-effects">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+    </div>
+
+    <!-- 側邊欄：僅限數值與操作 -->
+    <aside class="sidebar glass" id="sidebar">
+      <button id="toggle-sidebar" class="mobile-toggle-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+      </button>
+      <div id="sidebar-content" class="sidebar-content">
+        <div id="sidebar-expanded" class="sidebar-view expanded"></div>
+        <div id="sidebar-collapsed" class="sidebar-view collapsed"></div>
+      </div>
+    </aside>
+
+    <!-- 主內容區 -->
+    <main class="main-content">
+      <header class="main-header">
+        <h1 id="scene-title">天衍九州：虛數輪迴</h1>
+        <div id="thinking-indicator" class="thinking-spinner hidden">
+          <div class="pulse"></div>
+          <span>正在演算因果...</span>
+        </div>
+      </header>
+
+      <section class="story-display glass" id="story-container">
+        <div id="story-log" class="story-log">
+          <!-- 故事內容會動態插入這裡 -->
+        </div>
+      </section>
+
+      <section class="interaction-area">
+        <div id="quick-actions" class="quick-actions">
+          <!-- 動態生成的行動按鈕 -->
+        </div>
+        <div class="input-wrapper glass">
+          <form id="action-form">
+            <textarea id="player-action" placeholder="在此輸入你的行動，干涉世界因果..." rows="3"></textarea>
+            <button type="submit" class="submit-btn">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            </button>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 設置彈窗 -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-content glass">
+      <h2>系統配置</h2>
+      <div class="input-group">
+        <label>NVIDIA API Key</label>
+        <input id="api-key" type="password" placeholder="輸入 API 金鑰..." />
+      </div>
+      <div class="input-group">
+        <label>運算模型</label>
+        <select id="model-select">
+          <option value="google/gemma-4-31b-it">google/gemma-4-31b-it</option>
+        </select>
+      </div>
+      <div class="input-group checkbox-group">
+        <input id="proxy-toggle" type="checkbox" />
+        <label for="proxy-toggle">使用代理伺服器 (解決 CORS 問題)</label>
+      </div>
+      <div class="modal-footer">
+        <button id="close-settings" class="primary-btn">儲存並返回</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 存檔碼彈窗 -->
+  <div id="save-modal" class="modal hidden">
+    <div class="modal-content glass">
+      <h2 id="save-modal-title">序列數據</h2>
+      <textarea id="save-code" placeholder="在此貼上或複製數據序列..."></textarea>
+      <div class="modal-footer">
+        <button id="confirm-save-action" class="primary-btn">執行</button>
+        <button id="close-save-modal" class="secondary-btn">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
