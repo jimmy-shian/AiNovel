@@ -20,9 +20,13 @@ const SYSTEM_PROMPT = `你是《天衍九州》的裁判核心。這是一個由
   "suggested_options": ["選項1", "選項2", "選項3"]
 }`;
 
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
 const CONFIG = {
   useProxy: localStorage.getItem('tianyan_use_proxy') === 'true',
-  proxyUrl: 'http://127.0.0.1:8001/v1/chat/completions',
+  proxyUrl: isLocal 
+    ? 'http://127.0.0.1:4444/v1/chat/completions' 
+    : 'https://restless-hat-8ef5.jimmy910824.workers.dev/v1/chat/completions',
   directUrl: 'https://integrate.api.nvidia.com/v1/chat/completions'
 };
 
