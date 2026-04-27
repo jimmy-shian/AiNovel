@@ -381,6 +381,80 @@ body {
   padding-left: 20px;
 }
 
+.thinking-spinner {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  background: rgba(197, 160, 89, 0.1);
+  padding: 8px 20px;
+  border-radius: 30px;
+  border: 1px solid rgba(197, 160, 89, 0.3);
+  backdrop-filter: blur(10px);
+  animation: slideDown 0.4s ease-out;
+}
+
+.thinking-spinner.hidden {
+  display: none;
+}
+
+.spinner-core {
+  position: relative;
+  width: 24px;
+  height: 24px;
+}
+
+.spinner-core .ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border: 2px solid transparent;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: rotateRing 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+.spinner-core .ring:nth-child(2) {
+  width: 70%;
+  height: 70%;
+  top: 15%;
+  left: 15%;
+  border-top-color: var(--accent-soft);
+  animation-duration: 0.8s;
+  animation-direction: reverse;
+}
+
+.spinner-core .ring:nth-child(3) {
+  width: 40%;
+  height: 40%;
+  top: 30%;
+  left: 30%;
+  border-top-color: white;
+  animation-duration: 0.5s;
+}
+
+.thinking-text {
+  font-size: 0.85rem;
+  letter-spacing: 2px;
+  color: var(--accent);
+  text-transform: uppercase;
+  animation: textBreathe 2s ease-in-out infinite;
+}
+
+@keyframes rotateRing {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes textBreathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; text-shadow: 0 0 10px var(--accent); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .story-display {
   flex: 1;
   display: flex;
