@@ -1,5 +1,5 @@
 const SYSTEM_PROMPT = `[ROLE]
-你是《天衍九州》的裁判核心。
+你是《天衍九州》的裁判核心。[使用繁體中文輸出內容]
 
 [STYLE_RULE]
 - 東方玄幻 + 賽博龐克
@@ -11,19 +11,26 @@ const SYSTEM_PROMPT = `[ROLE]
 - 不合理請求 → 系統干涉失敗（需寫入敘事）
 
 [NUMERIC_RULE]
-- HP/SP: -30 ~ +30 整數
+- HP/SP/能力值: -30 ~ +30 整數（代表相對增減，例如 +10 或 -5）
 - THREAT: >= 0
 
 [NUMERIC_ENFORCEMENT]
 - 若超出範圍，自動修正為邊界值
 
 [LANGUAGE_BOUNDARY]
-- 故事中不得出現 HP/SP/THREAT
+- 故事中不得出現 HP/SP/THREAT 等系統字眼
 - META 不得包含敘事句
 
 [STATE_CONTINUITY]
 - 延續既有狀態與能力
 - 不得憑空新增設定
+
+[META_DEFINITION]
+- HP/SP/解析度/算力/THREAT: 必須使用相對值符號（如 +5, -10, +0），代表對現有數值的增減。
+- SCENE: 若要切換地圖，填入目標場景標題；否則填入 null。
+- NEW_ABILITY: 獲得新能力或物品。格式：能力名=數值。若無則填 none。
+- UPD_ABILITY: 更新現有能力。格式：能力名=增量。若無則填 none。
+- OPTIONS: 嚴格遵守 3 行格式。
 
 [FORMAT]
 先輸出故事（Markdown 分段）
@@ -31,9 +38,11 @@ const SYSTEM_PROMPT = `[ROLE]
 再輸出：
 
 <META>
-HP:0
-SP:0
-THREAT:0
+HP:+0
+SP:+0
+THREAT:+0
+解析度:+0
+算力:+0
 SCENE:null
 NEW_ABILITY:none
 UPD_ABILITY:none
@@ -55,7 +64,7 @@ OPTIONS:
 - 欄位順序必須固定
 
 [FAILSAFE]
-若格式可能錯誤，縮短故事但保留完整 META`;
+若格式可能錯誤，縮短故事但保留完整 META，並且使用繁體中文輸出。`;
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
@@ -147,7 +156,7 @@ function parseMeta(metaText) {
 
   const parsePairs = (raw) => {
     const out = {};
-    if (!raw) return out;
+    if (!raw || /^(none|無|null|nan)$/i.test(String(raw).trim())) return out;
     const parts = String(raw)
       .split(/[;；]/)
       .map(s => s.trim())
@@ -176,29 +185,36 @@ function parseMeta(metaText) {
       continue;
     }
 
-    const m = line.match(/^([A-Z_]+)\s*:\s*(.*)$/i);
+    const m = line.match(/^([^:：]+)\s*[:：]\s*(.*)$/);
     if (!m) continue;
-    const key = m[1].toUpperCase();
-    const value = m[2];
+    const key = m[1].trim().toUpperCase();
+    const value = m[2].trim();
 
-    if (key === 'HP' || key === '生命' || key === '生命值') {
+    if (key === 'HP' || key === '生命') {
       const v = parseDeltaNumber(value);
       if (v !== undefined) impact.hp = v;
-    } else if (key === 'SP' || key === '靈氣' || key === '靈力') {
+    } else if (key === 'SP' || key === '靈氣') {
       const v = parseDeltaNumber(value);
       if (v !== undefined) impact.sp = v;
-    } else if (key === 'THREAT' || key === '威脅' || key === '警戒') {
+    } else if (key === 'THREAT' || key === '威脅') {
       const v = parseDeltaNumber(value);
       if (v !== undefined) impact.threat = v;
     } else if (key === 'SCENE' || key === '場景') {
       const s = String(value || '').trim();
-      if (s) impact.scene = s;
-    } else if (key === 'NEW_ABILITY' || key === '獲得能力') {
-      const pairs = parsePairs(value);
-      if (Object.keys(pairs).length) impact.new_abilities = pairs;
+      if (s && s !== 'null' && s !== 'None') impact.scene = s;
+    } else if (key === 'NEW_ABILITY' || key === '新增能力') {
+      impact.new_abilities = parsePairs(value);
     } else if (key === 'UPD_ABILITY' || key === '更新能力') {
-      const pairs = parsePairs(value);
-      if (Object.keys(pairs).length) impact.update_abilities = pairs;
+      impact.update_abilities = parsePairs(value);
+    } else {
+      // 自動檢查是否為已存在的能力（如解析度、算力）
+      const p = state.game.player;
+      const abilityKey = Object.keys(p.abilities || {}).find(k => k.toUpperCase() === key);
+      if (abilityKey) {
+        if (!impact.update_abilities) impact.update_abilities = {};
+        const v = parseDeltaNumber(value);
+        if (v !== undefined) impact.update_abilities[abilityKey] = v;
+      }
     }
   }
 
@@ -496,11 +512,12 @@ function renderCollapsedView(p) {
 }
 
 function renderStatItemHTML(label, value, color) {
+  const safeLabel = btoa(unescape(encodeURIComponent(label))).replace(/=/g, '');
   return `
-    <div class="stat-item">
+    <div class="stat-item" id="stat-item-${safeLabel}">
       <span class="label">${label}</span>
       <div class="value-bar-container">
-        <div class="value-bar" style="width: ${Math.min(100, value)}%; background: ${color}; box-shadow: 0 0 10px ${color}66;"></div>
+        <div class="value-bar" id="bar-${safeLabel}" style="width: ${Math.min(100, value)}%; background: ${color}; box-shadow: 0 0 10px ${color}66;"></div>
       </div>
       <span class="value">${value}</span>
     </div>
@@ -606,8 +623,59 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
 
   setThinking(true);
   const contentEl = existingContentEl || appendStory('', 'narrative', timestamp);
-  contentEl.innerHTML = ''; 
+  contentEl.innerHTML = '';
   let fullText = "";
+  let displayedText = "";
+  let isStreamActive = true;
+
+  // 打字機循環
+  const typeWriter = setInterval(() => {
+    if (displayedText.length < fullText.length) {
+      displayedText = fullText.slice(0, displayedText.length + 1);
+      const { narrative } = splitMetaBlock(displayedText);
+      const formattedNarrative = narrative.replace(/。([」』”’〉》）］｝]*)/g, '。$1\n\n');
+      contentEl.innerHTML = marked.parse(formattedNarrative);
+      selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
+    } else if (!isStreamActive) {
+      clearInterval(typeWriter);
+      finalizeTurn();
+    }
+  }, 90);
+
+  async function finalizeTurn() {
+    try {
+      if (!fullText.trim()) throw new Error('AI 未返回任何有效敘事內容。請檢查模型名稱與 API Key 是否正確。');
+
+      const { narrative, metaText, hasCompleteMeta } = splitMetaBlock(fullText);
+      const { impact, suggested_options } = hasCompleteMeta ? parseMeta(metaText) : { impact: {}, suggested_options: [] };
+      const resultData = { narrative: narrative.trim(), impact, suggested_options };
+
+      state.game.history.push({ action: isFirstMove ? "START" : action, result: resultData, timestamp });
+      if (state.game.history.length > state.historyLimit) state.game.history.shift();
+      applyImpact(resultData.impact || {});
+      saveToStorage();
+    } catch (err) {
+      showError(err.message, isFirstMove, action, contentEl);
+    } finally {
+      setThinking(false);
+    }
+  }
+
+  function showError(msg, isFirst, act, el) {
+    el.innerHTML = `
+      <div class="error-container">
+        <span class="error-msg">系統異常：${msg}</span>
+        <button class="retry-btn glass" title="點擊重試">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+          重試
+        </button>
+      </div>`;
+    const retryBtn = el.querySelector('.retry-btn');
+    if (retryBtn) {
+      retryBtn.onclick = () => handleAction(null, isFirst, act, el);
+    }
+    setThinking(false);
+  }
 
   try {
     const url = CONFIG.useProxy ? CONFIG.proxyUrl : CONFIG.directUrl;
@@ -615,13 +683,22 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
       ? `系統初始化完成。請為玩家開始第一幕。當前場景：${state.world.startingState.scene}。`
       : buildPrompt(action);
 
+    const sceneData = state.world.scenes[state.game.scene];
+    let dynamicSystemPrompt = SYSTEM_PROMPT;
+    if (sceneData && sceneData.systemPrompt) {
+      dynamicSystemPrompt += `\n\n【當前場景特殊規則：${sceneData.title}】\n${sceneData.systemPrompt}`;
+    }
+
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: selectors.modelSelect.value,
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userContent }],
-        temperature: 1.0, stream: true, max_tokens: 16384, chat_template_kwargs: { enable_thinking: true }
+        messages: [
+          { role: 'system', content: dynamicSystemPrompt },
+          { role: 'user', content: userContent }
+        ],
+        temperature: 1.0, stream: true, max_tokens: 16384
       })
     });
 
@@ -632,20 +709,23 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        isStreamActive = false;
+        break;
+      }
       const chunk = decoder.decode(value, { stream: true });
       const lines = chunk.split('\n');
       for (const line of lines) {
         const trimmedLine = line.trim();
         if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
-        
+
         const dataStr = trimmedLine.slice(6);
         if (dataStr === '[DONE]') break;
-        
+
         try {
           const data = JSON.parse(dataStr);
           if (data.error) throw new Error(data.error.message || "API 內部錯誤");
-          
+
           const choice = data.choices?.[0];
           const delta = choice?.delta?.content || "";
           const reasoning = choice?.delta?.reasoning_content || "";
@@ -657,45 +737,24 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
 
           if (delta) {
             fullText += delta;
-            const { narrative } = splitMetaBlock(fullText);
-            const formattedNarrative = narrative.replace(/。([」』”’〉》）］｝]*)/g, '。$1\n\n');
-            contentEl.innerHTML = marked.parse(formattedNarrative);
-            selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
           }
         } catch (e) {
-          if (e.message.includes("API 內部錯誤")) throw e;
-          // 忽略其他非結構化 JSON 解析錯誤（常見於流的碎片）
+          // 如果是從 data.error 拋出的明確錯誤，或者是網路/代理層的嚴重錯誤，則繼續向上拋出
+          if (e.message !== "JSON.parse error" && !e.name.includes("SyntaxError")) {
+            throw e;
+          }
+          // 忽略流碎片導致的 JSON 解析錯誤
         }
       }
     }
 
     if (!fullText.trim()) throw new Error('AI 未返回任何有效敘事內容');
 
-    const { narrative, metaText, hasCompleteMeta } = splitMetaBlock(fullText);
-    const { impact, suggested_options } = hasCompleteMeta ? parseMeta(metaText) : { impact: {}, suggested_options: [] };
-    const resultData = { narrative: narrative.trim(), impact, suggested_options };
-
-    state.game.history.push({ action: isFirstMove ? "START" : action, result: resultData, timestamp });
-    if (state.game.history.length > state.historyLimit) state.game.history.shift();
-    applyImpact(resultData.impact || {});
-    saveToStorage();
 
   } catch (err) {
-    contentEl.innerHTML = `
-      <div class="error-container">
-        <span class="error-msg">系統異常：${err.message}</span>
-        <button class="retry-btn glass" title="點擊重試">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
-          重試
-        </button>
-      </div>`;
-    
-    const retryBtn = contentEl.querySelector('.retry-btn');
-    if (retryBtn) {
-      retryBtn.onclick = () => handleAction(null, isFirstMove, action, contentEl);
-    }
+    showError(err.message, isFirstMove, action, contentEl);
   } finally {
-    setThinking(false);
+    // 這裡不主動關閉，交給 finalizeTurn (打字結束) 或 catch (發生錯誤) 處理
   }
 }
 
@@ -717,20 +776,81 @@ function buildPrompt(action) {
 玩家行動：${action}`;
 }
 
+function showFloatingImpact(label, delta) {
+  const el = document.createElement('div');
+  const isPos = delta > 0;
+  el.className = `floating-impact ${isPos ? 'positive' : 'negative'}`;
+  el.textContent = `${label} ${isPos ? '+' : ''}${delta}`;
+
+  // 隨機化位置避免重疊
+  const x = window.innerWidth / 2 + (Math.random() - 0.5) * 300;
+  const y = window.innerHeight / 2 + (Math.random() - 0.5) * 150;
+
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1200);
+
+  // 嘗試觸發側邊欄動畫
+  const safeLabel = btoa(unescape(encodeURIComponent(label))).replace(/=/g, '');
+  const bar = document.getElementById(`bar-${safeLabel}`);
+  const item = document.getElementById(`stat-item-${safeLabel}`);
+  if (bar) {
+    bar.classList.remove('flash');
+    void bar.offsetWidth; // trigger reflow
+    bar.classList.add('flash');
+  }
+  if (item) {
+    item.classList.remove('pulse');
+    void item.offsetWidth;
+    item.classList.add('pulse');
+  }
+}
+
 function applyImpact(impact) {
   const p = state.game.player;
   if (!p.abilities) p.abilities = {};
-  if (impact.hp !== undefined) p.hp = Math.min(100, Math.max(0, p.hp + impact.hp));
-  if (impact.sp !== undefined) p.sp = Math.min(100, Math.max(0, p.sp + impact.sp));
-  if (impact.threat !== undefined) p.threat = Math.max(0, p.threat + impact.threat);
-  if (impact.new_abilities) p.abilities = { ...p.abilities, ...impact.new_abilities };
-  if (impact.update_abilities) {
-    Object.entries(impact.update_abilities).forEach(([n, v]) => {
-      if (p.abilities[n] !== undefined) p.abilities[n] = Math.min(100, Math.max(0, p.abilities[n] + v));
+
+  const changes = [];
+
+  if (impact.hp !== undefined && impact.hp !== 0) {
+    p.hp = Math.min(100, Math.max(0, p.hp + impact.hp));
+    changes.push(['生命體徵', impact.hp]);
+  }
+  if (impact.sp !== undefined && impact.sp !== 0) {
+    p.sp = Math.min(100, Math.max(0, p.sp + impact.sp));
+    changes.push(['靈氣能級', impact.sp]);
+  }
+  if (impact.threat !== undefined && impact.threat !== 0) {
+    p.threat = Math.max(0, p.threat + impact.threat);
+    changes.push(['系統威脅', impact.threat]);
+  }
+
+  if (impact.new_abilities) {
+    Object.entries(impact.new_abilities).forEach(([n, v]) => {
+      p.abilities[n] = v;
+      changes.push([n, v]);
     });
   }
+
+  if (impact.update_abilities) {
+    Object.entries(impact.update_abilities).forEach(([n, v]) => {
+      if (p.abilities[n] !== undefined) {
+        p.abilities[n] = Math.min(100, Math.max(0, p.abilities[n] + v));
+        changes.push([n, v]);
+      }
+    });
+  }
+
   if (impact.scene && state.world.scenes[impact.scene]) state.game.scene = impact.scene;
+
   render();
+
+  // 渲染後執行補間動畫
+  changes.forEach(([label, delta], i) => {
+    setTimeout(() => showFloatingImpact(label, delta), i * 1000);
+  });
 }
 
 function importSave() {

@@ -1098,3 +1098,49 @@ select.hidden {
 .retry-btn:hover svg {
   transform: rotate(180deg);
 }
+
+/* Floating Impact Animations */
+.floating-impact {
+  position: fixed;
+  pointer-events: none;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.5rem;
+  z-index: 9999;
+  animation: floatUpFade 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  text-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+
+.floating-impact.positive {
+  color: #10b981;
+}
+
+.floating-impact.negative {
+  color: #ef4444;
+}
+
+@keyframes floatUpFade {
+  0% { opacity: 0; transform: translateY(0) scale(0.5); }
+  20% { opacity: 1; transform: translateY(-20px) scale(1.2); }
+  100% { opacity: 0; transform: translateY(-100px) scale(1); }
+}
+
+.stat-item.pulse {
+  animation: statPulse 0.5s ease-out;
+}
+
+@keyframes statPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); filter: brightness(1.3); }
+  100% { transform: scale(1); }
+}
+
+.value-bar.flash {
+  animation: barFlash 0.6s ease-out;
+}
+
+@keyframes barFlash {
+  0% { filter: brightness(1); }
+  50% { filter: brightness(2.5); box-shadow: 0 0 25px currentColor; }
+  100% { filter: brightness(1); }
+}
