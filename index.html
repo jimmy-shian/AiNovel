@@ -40,14 +40,6 @@
     <main class="main-content">
       <header class="main-header">
         <h1 id="scene-title">天衍九州：虛數輪迴</h1>
-        <div id="thinking-indicator" class="thinking-spinner hidden">
-          <div class="spinner-core">
-            <div class="ring"></div>
-            <div class="ring"></div>
-            <div class="ring"></div>
-          </div>
-          <span class="thinking-text">正在演算因果...</span>
-        </div>
       </header>
 
       <section class="story-display glass" id="story-container">
@@ -86,10 +78,23 @@
       </div>
       <div class="input-group">
         <label>運算模型</label>
-        <select id="model-select">
-          <option value="google/gemma-4-31b-it">google/gemma-4-31b-it</option>
-          <option value="openai/gpt-oss-120b">openai/gpt-oss-120b</option>
-        </select>
+        <div class="custom-select" id="model-select-container">
+          <div class="select-trigger glass" id="model-select-trigger">
+            <span class="selected-value">google/gemma-4-31b-it</span>
+            <svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+          <div class="select-options glass hidden" id="model-select-options">
+            <div class="option selected" data-value="google/gemma-4-31b-it">google/gemma-4-31b-it</div>
+            <div class="option" data-value="openai/gpt-oss-120b">openai/gpt-oss-120b</div>
+          </div>
+          <select id="model-select" class="hidden">
+            <option value="openai/gpt-oss-120b">openai/gpt-oss-120b</option>
+            <option value="google/gemma-4-31b-it">google/gemma-4-31b-it</option>
+          </select>
+        </div>
       </div>
       <div class="input-group checkbox-group">
         <input id="proxy-toggle" type="checkbox" checked />

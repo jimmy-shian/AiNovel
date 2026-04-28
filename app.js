@@ -1,31 +1,73 @@
-const SYSTEM_PROMPT = `你是《天衍九州》的裁判核心。這是一個由高維數據構成的修仙世界，靈氣是數據溢出，修煉是代碼提權。
-你的任務是根據玩家行動描述精彩、連貫且具有畫面感的後果。
-請保持敘事風格優雅、充滿東方玄幻與賽博龐克交織的氣氛。
-描述字數建議在 200-400 字之間，確保故事推進流暢。
+const SYSTEM_PROMPT = `[ROLE]
+你是《天衍九州》的裁判核心。
 
-請務必在回覆的最後包含一個 JSON 區塊（放在 Markdown 代碼塊之外，或作為最後一部分），包含以下格式：
-{
-  "success": true,
-  "narrative": "這裡重複或總結上述的敘事內容",
-  "impact": {
-    "hp": 數值變動,
-    "sp": 數值變動,
-    "threat": 數值變動,
-    "scene": "新場景(若有)",
-    "new_abilities": {"能力名": 初始值},
-    "update_abilities": {"能力名": 變動值},
-    "inventory_add": [],
-    "inventory_remove": []
-  },
-  "suggested_options": ["選項1", "選項2", "選項3"]
-}`;
+[STYLE_RULE]
+- 東方玄幻 + 賽博龐克
+- 至少包含1個數據/系統描寫
+- 使用感官描述
+
+[JUDGEMENT]
+- 成功 / 部分成功 / 失敗
+- 不合理請求 → 系統干涉失敗（需寫入敘事）
+
+[NUMERIC_RULE]
+- HP/SP: -30 ~ +30 整數
+- THREAT: >= 0
+
+[NUMERIC_ENFORCEMENT]
+- 若超出範圍，自動修正為邊界值
+
+[LANGUAGE_BOUNDARY]
+- 故事中不得出現 HP/SP/THREAT
+- META 不得包含敘事句
+
+[STATE_CONTINUITY]
+- 延續既有狀態與能力
+- 不得憑空新增設定
+
+[FORMAT]
+先輸出故事（Markdown 分段）
+
+再輸出：
+
+<META>
+HP:0
+SP:0
+THREAT:0
+SCENE:null
+NEW_ABILITY:none
+UPD_ABILITY:none
+OPTIONS:
+- 
+- 
+- 
+</META>
+
+[OPTIONS_RULE]
+- 必須剛好3行
+- 每行以「- 」開頭
+- 每行 <=20字
+- 不得解釋或使用句號
+
+[FORMAT_ENFORCEMENT]
+- 不得輸出 META 以外內容
+- 不得缺少欄位
+- 欄位順序必須固定
+
+[FAILSAFE]
+若格式可能錯誤，縮短故事但保留完整 META`;
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
+// 讓單一換行也能在畫面上保留，避免敘事擠成一大段
+if (window.marked?.setOptions) {
+  marked.setOptions({ breaks: true });
+}
+
 const CONFIG = {
   useProxy: localStorage.getItem('tianyan_use_proxy') === 'true',
-  proxyUrl: isLocal 
-    ? 'http://127.0.0.1:4444/v1/chat/completions' 
+  proxyUrl: isLocal
+    ? 'http://127.0.0.1:4444/v1/chat/completions'
     : 'https://restless-hat-8ef5.jimmy910824.workers.dev/v1/chat/completions',
   directUrl: 'https://integrate.api.nvidia.com/v1/chat/completions'
 };
@@ -43,7 +85,6 @@ const selectors = {
   playerAction: document.getElementById('player-action'),
   actionForm: document.getElementById('action-form'),
   sceneTitle: document.getElementById('scene-title'),
-  thinkingIndicator: document.getElementById('thinking-indicator'),
   settingsModal: document.getElementById('settings-modal'),
   apiKey: document.getElementById('api-key'),
   modelSelect: document.getElementById('model-select'),
@@ -59,9 +100,134 @@ const selectors = {
   sidebarExpanded: document.getElementById('sidebar-expanded'),
   sidebarCollapsed: document.getElementById('sidebar-collapsed'),
   btnToggleSidebar: document.getElementById('toggle-sidebar'),
+  // Custom Select Selectors
+  modelSelectContainer: document.getElementById('model-select-container'),
+  modelSelectTrigger: document.getElementById('model-select-trigger'),
+  modelSelectOptions: document.getElementById('model-select-options'),
+  modelSelectedValue: document.querySelector('#model-select-trigger .selected-value'),
 };
 
 let currentSaveMode = 'export';
+state.thinkingEntry = null;
+
+function splitMetaBlock(text) {
+  const startTag = '<META>';
+  const endTag = '</META>';
+  const start = text.indexOf(startTag);
+  if (start === -1) return { narrative: text, metaText: null, hasCompleteMeta: false };
+  const end = text.indexOf(endTag, start + startTag.length);
+  const narrative = text.slice(0, start).trimEnd();
+  if (end === -1) {
+    return {
+      narrative,
+      metaText: text.slice(start + startTag.length).trim(),
+      hasCompleteMeta: false
+    };
+  }
+  return {
+    narrative,
+    metaText: text.slice(start + startTag.length, end).trim(),
+    hasCompleteMeta: true
+  };
+}
+
+function parseMeta(metaText) {
+  const impact = {};
+  const suggested_options = [];
+  if (!metaText) return { impact, suggested_options };
+
+  const lines = metaText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  let inOptions = false;
+
+  const parseDeltaNumber = (raw) => {
+    if (raw === undefined || raw === null) return undefined;
+    const v = Number(String(raw).trim());
+    return Number.isFinite(v) ? v : undefined;
+  };
+
+  const parsePairs = (raw) => {
+    const out = {};
+    if (!raw) return out;
+    const parts = String(raw)
+      .split(/[;；]/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    for (const part of parts) {
+      const eq = part.indexOf('=');
+      if (eq === -1) continue;
+      const k = part.slice(0, eq).trim();
+      const vRaw = part.slice(eq + 1).trim();
+      const v = Number(vRaw);
+      if (!k || !Number.isFinite(v)) continue;
+      out[k] = v;
+    }
+    return out;
+  };
+
+  for (const line of lines) {
+    if (/^(OPTIONS|選項)\s*:/i.test(line)) {
+      inOptions = true;
+      continue;
+    }
+    if (inOptions) {
+      // 支援多種格式：- 選項, * 選項, 1. 選項, 或直接是文字
+      const opt = line.replace(/^[-*]|\d+\./, '').trim();
+      if (opt) suggested_options.push(opt);
+      continue;
+    }
+
+    const m = line.match(/^([A-Z_]+)\s*:\s*(.*)$/i);
+    if (!m) continue;
+    const key = m[1].toUpperCase();
+    const value = m[2];
+
+    if (key === 'HP' || key === '生命' || key === '生命值') {
+      const v = parseDeltaNumber(value);
+      if (v !== undefined) impact.hp = v;
+    } else if (key === 'SP' || key === '靈氣' || key === '靈力') {
+      const v = parseDeltaNumber(value);
+      if (v !== undefined) impact.sp = v;
+    } else if (key === 'THREAT' || key === '威脅' || key === '警戒') {
+      const v = parseDeltaNumber(value);
+      if (v !== undefined) impact.threat = v;
+    } else if (key === 'SCENE' || key === '場景') {
+      const s = String(value || '').trim();
+      if (s) impact.scene = s;
+    } else if (key === 'NEW_ABILITY' || key === '獲得能力') {
+      const pairs = parsePairs(value);
+      if (Object.keys(pairs).length) impact.new_abilities = pairs;
+    } else if (key === 'UPD_ABILITY' || key === '更新能力') {
+      const pairs = parsePairs(value);
+      if (Object.keys(pairs).length) impact.update_abilities = pairs;
+    }
+  }
+
+  return { impact, suggested_options };
+}
+
+function appendThinking(timestamp = null) {
+  const entry = document.createElement('div');
+  entry.className = 'story-entry thinking';
+  const date = timestamp ? new Date(timestamp) : new Date();
+  const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  entry.innerHTML = `
+    <div class="entry-header">
+      <span class="sender">AI</span> <span class="time">${timeStr}</span>
+    </div>
+    <div class="entry-content">
+      <div class="thinking-spinner">
+        <div class="spinner-core">
+          <div class="ring"></div>
+          <div class="ring"></div>
+          <div class="ring"></div>
+        </div>
+        <span class="thinking-text">正在演算因果...</span>
+      </div>
+    </div>`;
+  selectors.storyLog.appendChild(entry);
+  selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
+  return entry;
+}
 
 async function init() {
   state.world = await fetch('world.json').then((res) => res.json());
@@ -94,6 +260,63 @@ async function init() {
 
   render();
   setupEventListeners();
+  setupCustomSelect();
+}
+
+function setupCustomSelect() {
+  const container = selectors.modelSelectContainer;
+  const trigger = selectors.modelSelectTrigger;
+  const optionsList = selectors.modelSelectOptions;
+  const nativeSelect = selectors.modelSelect;
+  const displayValue = selectors.modelSelectedValue;
+
+  // 動態生成選項以同步原生 Select
+  function syncOptions() {
+    optionsList.innerHTML = '';
+    Array.from(nativeSelect.options).forEach(opt => {
+      const optionEl = document.createElement('div');
+      optionEl.className = `option ${opt.value === nativeSelect.value ? 'selected' : ''}`;
+      optionEl.dataset.value = opt.value;
+      optionEl.textContent = opt.textContent;
+
+      optionEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const val = optionEl.dataset.value;
+        nativeSelect.value = val;
+        displayValue.textContent = opt.textContent;
+
+        optionsList.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
+        optionEl.classList.add('selected');
+
+        container.classList.remove('active');
+        optionsList.classList.add('hidden');
+      });
+
+      optionsList.appendChild(optionEl);
+    });
+    displayValue.textContent = nativeSelect.options[nativeSelect.selectedIndex]?.textContent || nativeSelect.value;
+  }
+
+  syncOptions();
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isActive = container.classList.contains('active');
+
+    document.querySelectorAll('.custom-select').forEach(cs => cs.classList.remove('active'));
+    document.querySelectorAll('.select-options').forEach(so => so.classList.add('hidden'));
+
+    if (!isActive) {
+      container.classList.add('active');
+      optionsList.classList.remove('hidden');
+    }
+  });
+
+  // Close on click outside
+  document.addEventListener('click', () => {
+    container.classList.remove('active');
+    optionsList.classList.add('hidden');
+  });
 }
 
 function setupEventListeners() {
@@ -127,7 +350,7 @@ function setupEventListeners() {
   });
 
   selectors.btnCloseSave.addEventListener('click', () => selectors.saveModal.classList.add('hidden'));
-  
+
   // 點擊彈窗外部關閉
   [selectors.settingsModal, selectors.saveModal].forEach(modal => {
     modal.addEventListener('click', (e) => {
@@ -179,7 +402,12 @@ function render() {
 
   renderSidebar();
 
-  if (state.game.history.length === 0) renderQuickActions(sceneData.options || []);
+  if (state.game.history.length === 0) {
+    renderQuickActions(sceneData.options || []);
+  } else {
+    const lastEntry = state.game.history[state.game.history.length - 1];
+    renderQuickActions(lastEntry?.result?.suggested_options || []);
+  }
 }
 
 function renderSidebar() {
@@ -325,9 +553,17 @@ function renderQuickActions(options) {
   selectors.quickActions.innerHTML = '';
   options.slice(0, 4).forEach((opt, index) => {
     const btn = document.createElement('button');
-    btn.className = 'quick-btn';
-    btn.textContent = index + 1;
-    btn.title = opt; // 懸停時顯示完整文字
+    btn.className = 'quick-btn glass';
+
+    // 限制顯示長度，其餘用 ellipsis
+    const displayOpt = opt.length > 5 ? opt.slice(0, 5) + '...' : opt;
+
+    btn.innerHTML = `
+      <span class="quick-index">${index + 1}</span>
+      <span class="quick-text">${displayOpt}</span>
+      <div class="quick-tooltip">${opt}</div>
+    `;
+
     btn.addEventListener('click', () => {
       selectors.playerAction.value = opt;
       selectors.playerAction.focus();
@@ -342,17 +578,18 @@ function appendStory(text, type = 'narrative', timestamp = null) {
   const date = timestamp ? new Date(timestamp) : new Date();
   const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   const sender = type === 'action' ? 'PLAYER' : (type === 'system' ? 'SYSTEM' : 'AI');
-  entry.innerHTML = `<div class="entry-header"><span class="sender">${sender}</span> <span class="time">${timeStr}</span></div><div class="entry-content">${marked.parse(text)}</div>`;
+  const formattedText = text.replace(/。([」』”’〉》）］｝]*)/g, '。$1\n\n');
+  entry.innerHTML = `<div class="entry-header"><span class="sender">${sender}</span> <span class="time">${timeStr}</span></div><div class="entry-content">${marked.parse(formattedText)}</div>`;
   selectors.storyLog.appendChild(entry);
   selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
   return entry.querySelector('.entry-content');
 }
 
-async function handleAction(e, isFirstMove = false) {
+async function handleAction(e, isFirstMove = false, retryAction = null, existingContentEl = null) {
   if (e) e.preventDefault();
   if (state.isThinking) return;
 
-  const action = selectors.playerAction.value.trim();
+  const action = retryAction !== null ? retryAction : selectors.playerAction.value.trim();
   if (!action && !isFirstMove) return;
 
   const apiKey = selectors.apiKey.value.trim();
@@ -362,13 +599,14 @@ async function handleAction(e, isFirstMove = false) {
   }
 
   const timestamp = Date.now();
-  if (!isFirstMove) {
+  if (!isFirstMove && retryAction === null) {
     appendStory(action, 'action', timestamp);
     selectors.playerAction.value = '';
   }
 
   setThinking(true);
-  const contentEl = appendStory('', 'narrative', timestamp);
+  const contentEl = existingContentEl || appendStory('', 'narrative', timestamp);
+  contentEl.innerHTML = ''; 
   let fullText = "";
 
   try {
@@ -398,44 +636,64 @@ async function handleAction(e, isFirstMove = false) {
       const chunk = decoder.decode(value, { stream: true });
       const lines = chunk.split('\n');
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const dataStr = line.slice(6);
-          if (dataStr === '[DONE]') break;
-          try {
-            const data = JSON.parse(dataStr);
-            const delta = data.choices[0].delta?.content || "";
+        const trimmedLine = line.trim();
+        if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+        
+        const dataStr = trimmedLine.slice(6);
+        if (dataStr === '[DONE]') break;
+        
+        try {
+          const data = JSON.parse(dataStr);
+          if (data.error) throw new Error(data.error.message || "API 內部錯誤");
+          
+          const choice = data.choices?.[0];
+          const delta = choice?.delta?.content || "";
+          const reasoning = choice?.delta?.reasoning_content || "";
+
+          if (reasoning && state.thinkingEntry) {
+            const textEl = state.thinkingEntry.querySelector('.thinking-text');
+            if (textEl) textEl.textContent = "正在演算因果...";
+          }
+
+          if (delta) {
             fullText += delta;
-            // 過濾 JSON 區塊不顯示在流式輸出中
-            const displayDelta = fullText.replace(/\{[\s\S]*\}/, "");
-            contentEl.innerHTML = marked.parse(displayDelta);
+            const { narrative } = splitMetaBlock(fullText);
+            const formattedNarrative = narrative.replace(/。([」』”’〉》）］｝]*)/g, '。$1\n\n');
+            contentEl.innerHTML = marked.parse(formattedNarrative);
             selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
-          } catch (e) { }
+          }
+        } catch (e) {
+          if (e.message.includes("API 內部錯誤")) throw e;
+          // 忽略其他非結構化 JSON 解析錯誤（常見於流的碎片）
         }
       }
     }
 
-    // 結束後解析 JSON
-    const jsonMatch = fullText.match(/\{[\s\S]*\}/);
-    let resultData = { narrative: fullText, impact: {}, suggested_options: [] };
-    if (jsonMatch) {
-      try {
-        const jsonPart = JSON.parse(jsonMatch[0]);
-        resultData = {
-          narrative: jsonPart.narrative || fullText.replace(jsonMatch[0], "").trim(),
-          impact: jsonPart.impact || {},
-          suggested_options: jsonPart.suggested_options || []
-        };
-      } catch (e) { }
-    }
+    if (!fullText.trim()) throw new Error('AI 未返回任何有效敘事內容');
+
+    const { narrative, metaText, hasCompleteMeta } = splitMetaBlock(fullText);
+    const { impact, suggested_options } = hasCompleteMeta ? parseMeta(metaText) : { impact: {}, suggested_options: [] };
+    const resultData = { narrative: narrative.trim(), impact, suggested_options };
 
     state.game.history.push({ action: isFirstMove ? "START" : action, result: resultData, timestamp });
     if (state.game.history.length > state.historyLimit) state.game.history.shift();
     applyImpact(resultData.impact || {});
-    renderQuickActions(resultData.suggested_options || []);
     saveToStorage();
 
   } catch (err) {
-    contentEl.innerHTML = `系統異常：${err.message}`;
+    contentEl.innerHTML = `
+      <div class="error-container">
+        <span class="error-msg">系統異常：${err.message}</span>
+        <button class="retry-btn glass" title="點擊重試">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+          重試
+        </button>
+      </div>`;
+    
+    const retryBtn = contentEl.querySelector('.retry-btn');
+    if (retryBtn) {
+      retryBtn.onclick = () => handleAction(null, isFirstMove, action, contentEl);
+    }
   } finally {
     setThinking(false);
   }
@@ -443,7 +701,12 @@ async function handleAction(e, isFirstMove = false) {
 
 function setThinking(val) {
   state.isThinking = val;
-  selectors.thinkingIndicator.classList.toggle('hidden', !val);
+  if (val) {
+    if (!state.thinkingEntry) state.thinkingEntry = appendThinking();
+  } else {
+    state.thinkingEntry?.remove?.();
+    state.thinkingEntry = null;
+  }
 }
 
 function buildPrompt(action) {
@@ -457,9 +720,9 @@ function buildPrompt(action) {
 function applyImpact(impact) {
   const p = state.game.player;
   if (!p.abilities) p.abilities = {};
-  if (impact.hp) p.hp = Math.min(100, Math.max(0, p.hp + impact.hp));
-  if (impact.sp) p.sp = Math.min(100, Math.max(0, p.sp + impact.sp));
-  if (impact.threat) p.threat = Math.max(0, p.threat + impact.threat);
+  if (impact.hp !== undefined) p.hp = Math.min(100, Math.max(0, p.hp + impact.hp));
+  if (impact.sp !== undefined) p.sp = Math.min(100, Math.max(0, p.sp + impact.sp));
+  if (impact.threat !== undefined) p.threat = Math.max(0, p.threat + impact.threat);
   if (impact.new_abilities) p.abilities = { ...p.abilities, ...impact.new_abilities };
   if (impact.update_abilities) {
     Object.entries(impact.update_abilities).forEach(([n, v]) => {
