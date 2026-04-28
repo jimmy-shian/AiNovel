@@ -441,18 +441,38 @@ body {
 }
 
 @keyframes rotateRing {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes textBreathe {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; text-shadow: 0 0 10px var(--accent); }
+
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+
+  50% {
+    opacity: 1;
+    text-shadow: 0 0 10px var(--accent);
+  }
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .story-display {
@@ -556,6 +576,7 @@ body {
   overflow: visible;
   backdrop-filter: blur(10px);
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  min-width: 44px;
 }
 
 .quick-btn:hover {
@@ -758,7 +779,14 @@ body {
 
   .main-content {
     height: 100%;
-    padding-bottom: 100px;
+    padding-bottom: 6rem;
+    /* 增加間距避免擋到輸入框 */
+  }
+
+  .main-header h1 {
+    font-size: 1.3rem;
+    /* 手機版標題縮小，只比內文略大 */
+    padding-left: 15px;
   }
 
   /* 手機版能量條改為兩列 */
@@ -797,11 +825,43 @@ body {
   }
 
   .story-display {
-    padding: 20px;
+    padding: 15px;
+    min-height: 45vh;
   }
 
   .entry-content {
     font-size: 1rem;
+  }
+
+  .quick-text {
+    display: none;
+    /* 手機版不顯示文字，僅顯示數字 */
+  }
+
+  .quick-actions {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .quick-btn {
+    padding: 0;
+    border-radius: 50%;
+    width: 38px;
+    height: 38px;
+    justify-content: center;
+    gap: 0;
+    min-width: 38px;
+  }
+
+  .quick-index {
+    margin: 0;
+    width: 22px;
+    height: 22px;
+    font-size: 0.8rem;
+  }
+
+  .interaction-area {
+    margin-bottom: 10px;
   }
 }
 
@@ -854,6 +914,13 @@ body {
   font-size: 0.8rem;
   color: var(--text-muted);
   text-transform: uppercase;
+}
+
+.input-wrapper {
+  padding: 5px 10px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 20px;
+  border: 1px solid var(--glass-border);
 }
 
 .input-group input,
@@ -968,6 +1035,7 @@ body {
     opacity: 0;
     transform: translateY(-10px) scale(0.95);
   }
+
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -979,6 +1047,7 @@ body {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+
   to {
     opacity: 0;
     transform: translateY(-10px) scale(0.95);
@@ -1108,7 +1177,7 @@ select.hidden {
   font-size: 1.5rem;
   z-index: 9999;
   animation: floatUpFade 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  text-shadow: 0 0 10px rgba(0,0,0,0.5);
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
 }
 
 .floating-impact.positive {
@@ -1120,9 +1189,20 @@ select.hidden {
 }
 
 @keyframes floatUpFade {
-  0% { opacity: 0; transform: translateY(0) scale(0.5); }
-  20% { opacity: 1; transform: translateY(-20px) scale(1.2); }
-  100% { opacity: 0; transform: translateY(-100px) scale(1); }
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.5);
+  }
+
+  20% {
+    opacity: 1;
+    transform: translateY(-20px) scale(1.2);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-100px) scale(1);
+  }
 }
 
 .stat-item.pulse {
@@ -1130,9 +1210,18 @@ select.hidden {
 }
 
 @keyframes statPulse {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.05); filter: brightness(1.3); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.05);
+    filter: brightness(1.3);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
 .value-bar.flash {
@@ -1140,7 +1229,16 @@ select.hidden {
 }
 
 @keyframes barFlash {
-  0% { filter: brightness(1); }
-  50% { filter: brightness(2.5); box-shadow: 0 0 25px currentColor; }
-  100% { filter: brightness(1); }
+  0% {
+    filter: brightness(1);
+  }
+
+  50% {
+    filter: brightness(2.5);
+    box-shadow: 0 0 25px currentColor;
+  }
+
+  100% {
+    filter: brightness(1);
+  }
 }
