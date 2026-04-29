@@ -1,72 +1,41 @@
-const SYSTEM_PROMPT = `[ROLE]
-你是《天衍九州》的裁判核心。[使用繁體中文輸出內容]
+const SYSTEM_PROMPT = `你是《天衍九州》的裁判核心。[使用繁體中文輸出內容]
+請務必以 JSON 格式回傳內容，不得包含任何 JSON 以外的文字。
 
 [STYLE_RULE]
 - 東方玄幻 + 賽博龐克
 - 至少包含1個數據/系統描寫
 - 使用感官描述
+-使用"繁體中文"輸出
 
 [JUDGEMENT]
 - 成功 / 部分成功 / 失敗
-- 不合理請求 → 系統干涉失敗（需寫入敘事）
+- 不合理請求 → 嚴重的系統干涉失敗，斟酌扣除能力值或增加威脅值(需寫入故事)
 
 [NUMERIC_RULE]
-- HP/SP/能力值: -30 ~ +30 整數（代表相對增減，例如 +10 或 -5）
+- HP/SP/能力值: -30 ~ +30 整數（代表相對增減）
 - THREAT: >= 0
 
-[NUMERIC_ENFORCEMENT]
-- 若超出範圍，自動修正為邊界值
-
-[LANGUAGE_BOUNDARY]
-- 故事中不得出現 HP/SP/THREAT 等系統字眼
-- META 不得包含敘事句
-
-[STATE_CONTINUITY]
-- 延續既有狀態與能力
-- 不得憑空新增設定
-
-[META_DEFINITION]
-- HP/SP/解析度/算力/THREAT: 必須使用相對值符號（如 +5, -10, +0），代表對現有數值的增減。
-- SCENE: 若要切換地圖，填入目標場景標題；否則填入 null。
-- NEW_ABILITY: 獲得新能力或物品。格式：能力名=數值。若無則填 none。
-- UPD_ABILITY: 更新現有能力。格式：能力名=增量。若無則填 none。
-- OPTIONS: 嚴格遵守 3 行格式。
-
-[FORMAT]
-先輸出故事（Markdown 分段）
-
-再輸出：
-
-<META>
-HP:+0
-SP:+0
-THREAT:+0
-解析度:+0
-算力:+0
-SCENE:null
-NEW_ABILITY:none
-UPD_ABILITY:none
-OPTIONS:
-- 
-- 
-- 
-</META>
+[JSON_STRUCTURE]
+{
+  "narrative": "故事敘事內容（使用 Markdown 分段）",
+  "meta": {
+    "hp": "+0",
+    "sp": "+0",
+    "threat": "+0",
+    "scene": "null",
+    "new_ability": "none",
+    "upd_ability": "none",
+    "options": ["選項1", "選項2", "選項3"]
+  }
+}
 
 [OPTIONS_RULE]
-- 必須剛好3行
-- 每行以「- 」開頭
-- 每行 <=20字
-- 不得解釋或使用句號
-
-[FORMAT_ENFORCEMENT]
-- 不得輸出 META 以外內容
-- 不得缺少欄位
-- 欄位順序必須固定
-
-[FAILSAFE]
-若格式可能錯誤，縮短故事但保留完整 META，並且使用繁體中文輸出。`;
+- 必須3到5個之間的選項
+- 每個選項 <=20字
+- 不得解釋或使用句號`;
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const VERSION = "v1.0.8b"; // 基於 Commit 次數更新的版本號 git rev-list --count HEAD
 
 // 讓單一換行也能在畫面上保留，避免敘事擠成一大段
 if (window.marked?.setOptions) {
@@ -120,103 +89,74 @@ let currentSaveMode = 'export';
 state.thinkingEntry = null;
 
 function splitMetaBlock(text) {
-  const startTag = '<META>';
-  const endTag = '</META>';
-  const start = text.indexOf(startTag);
-  if (start === -1) return { narrative: text, metaText: null, hasCompleteMeta: false };
-  const end = text.indexOf(endTag, start + startTag.length);
-  const narrative = text.slice(0, start).trimEnd();
-  if (end === -1) {
+  try {
+    const data = JSON.parse(text);
+    console.log("Parsed JSON Narrative:", data.narrative);
     return {
-      narrative,
-      metaText: text.slice(start + startTag.length).trim(),
-      hasCompleteMeta: false
+      narrative: data.narrative || "",
+      meta: data.meta || {},
+      isJson: true,
+      isComplete: true
     };
+  } catch (e) {
+    // 串流中，尋找 "narrative": "..."
+    const narrativeMatch = text.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)/);
+    if (narrativeMatch) {
+      let rawContent = narrativeMatch[1];
+      // 更加強大的解碼邏輯
+      let narrative = rawContent
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/\\t/g, '\t')
+        .replace(/\\\\/g, '\\');
+
+      // 處理模型可能輸出的字面值 "\n" (有時模型會輸出成文字而非轉義字)
+      narrative = narrative.replace(/\\n/g, '\n');
+
+      return { narrative, meta: null, isJson: true, isComplete: false };
+    }
+    return { narrative: "", meta: null, isJson: false, isComplete: false };
   }
-  return {
-    narrative,
-    metaText: text.slice(start + startTag.length, end).trim(),
-    hasCompleteMeta: true
-  };
 }
 
-function parseMeta(metaText) {
+function parseMeta(meta) {
   const impact = {};
-  const suggested_options = [];
-  if (!metaText) return { impact, suggested_options };
-
-  const lines = metaText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  let inOptions = false;
+  const suggested_options = meta.options || [];
 
   const parseDeltaNumber = (raw) => {
     if (raw === undefined || raw === null) return undefined;
-    const v = Number(String(raw).trim());
+    const v = Number(String(raw).replace('+', '').trim());
     return Number.isFinite(v) ? v : undefined;
   };
 
   const parsePairs = (raw) => {
     const out = {};
     if (!raw || /^(none|無|null|nan)$/i.test(String(raw).trim())) return out;
-    const parts = String(raw)
-      .split(/[;；]/)
-      .map(s => s.trim())
-      .filter(Boolean);
+    if (typeof raw === 'object') return raw; // 如果已經是物件就直接回傳
+    const parts = String(raw).split(/[;；]/).map(s => s.trim()).filter(Boolean);
     for (const part of parts) {
       const eq = part.indexOf('=');
       if (eq === -1) continue;
       const k = part.slice(0, eq).trim();
-      const vRaw = part.slice(eq + 1).trim();
-      const v = Number(vRaw);
-      if (!k || !Number.isFinite(v)) continue;
-      out[k] = v;
+      const v = Number(part.slice(eq + 1).trim());
+      if (k && Number.isFinite(v)) out[k] = v;
     }
     return out;
   };
 
-  for (const line of lines) {
-    if (/^(OPTIONS|選項)\s*:/i.test(line)) {
-      inOptions = true;
-      continue;
-    }
-    if (inOptions) {
-      // 支援多種格式：- 選項, * 選項, 1. 選項, 或直接是文字
-      const opt = line.replace(/^[-*]|\d+\./, '').trim();
-      if (opt) suggested_options.push(opt);
-      continue;
-    }
+  if (meta.hp) impact.hp = parseDeltaNumber(meta.hp);
+  if (meta.sp) impact.sp = parseDeltaNumber(meta.sp);
+  if (meta.threat) impact.threat = parseDeltaNumber(meta.threat);
+  if (meta.scene && meta.scene !== 'null') impact.scene = meta.scene;
+  if (meta.new_ability) impact.new_abilities = parsePairs(meta.new_ability);
+  if (meta.upd_ability) impact.update_abilities = parsePairs(meta.upd_ability);
 
-    const m = line.match(/^([^:：]+)\s*[:：]\s*(.*)$/);
-    if (!m) continue;
-    const key = m[1].trim().toUpperCase();
-    const value = m[2].trim();
-
-    if (key === 'HP' || key === '生命') {
-      const v = parseDeltaNumber(value);
-      if (v !== undefined) impact.hp = v;
-    } else if (key === 'SP' || key === '靈氣') {
-      const v = parseDeltaNumber(value);
-      if (v !== undefined) impact.sp = v;
-    } else if (key === 'THREAT' || key === '威脅') {
-      const v = parseDeltaNumber(value);
-      if (v !== undefined) impact.threat = v;
-    } else if (key === 'SCENE' || key === '場景') {
-      const s = String(value || '').trim();
-      if (s && s !== 'null' && s !== 'None') impact.scene = s;
-    } else if (key === 'NEW_ABILITY' || key === '新增能力') {
-      impact.new_abilities = parsePairs(value);
-    } else if (key === 'UPD_ABILITY' || key === '更新能力') {
-      impact.update_abilities = parsePairs(value);
-    } else {
-      // 自動檢查是否為已存在的能力（如解析度、算力）
-      const p = state.game.player;
-      const abilityKey = Object.keys(p.abilities || {}).find(k => k.toUpperCase() === key);
-      if (abilityKey) {
-        if (!impact.update_abilities) impact.update_abilities = {};
-        const v = parseDeltaNumber(value);
-        if (v !== undefined) impact.update_abilities[abilityKey] = v;
-      }
-    }
-  }
+  if (meta.hp) impact.hp = parseDeltaNumber(meta.hp);
+  if (meta.sp) impact.sp = parseDeltaNumber(meta.sp);
+  if (meta.threat) impact.threat = parseDeltaNumber(meta.threat);
+  if (meta.scene && meta.scene !== 'null') impact.scene = meta.scene;
+  if (meta.new_ability) impact.new_abilities = parsePairs(meta.new_ability);
+  if (meta.upd_ability) impact.update_abilities = parsePairs(meta.upd_ability);
 
   return { impact, suggested_options };
 }
@@ -231,17 +171,23 @@ function appendThinking(timestamp = null) {
       <span class="sender">AI</span> <span class="time">${timeStr}</span>
     </div>
     <div class="entry-content">
-      <div class="thinking-spinner">
+      <div class="thinking-wrapper">
         <div class="spinner-core">
           <div class="ring"></div>
           <div class="ring"></div>
           <div class="ring"></div>
         </div>
-        <span class="thinking-text">正在演算因果...</span>
+        <span class="thinking-text">正在演算因果</span>
+        <div class="fb-dots">
+          <span></span><span></span><span></span>
+        </div>
       </div>
     </div>`;
+  const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 50;
   selectors.storyLog.appendChild(entry);
-  selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
+  if (wasAtBottom) {
+    selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
+  }
   return entry;
 }
 
@@ -441,7 +387,7 @@ function renderExpandedView(p, sceneTitle) {
     <div class="sidebar-header">
       <div class="logo">
         <span class="logo-text">TIANYAN</span>
-        <span class="logo-sub">OS v4.31b</span>
+        <span class="logo-sub">OS ${VERSION}</span>
       </div>
     </div>
 
@@ -597,14 +543,22 @@ function appendStory(text, type = 'narrative', timestamp = null) {
   const sender = type === 'action' ? 'PLAYER' : (type === 'system' ? 'SYSTEM' : 'AI');
   const formattedText = text.replace(/。([」』”’〉》）］｝]*)/g, '。$1\n\n');
   entry.innerHTML = `<div class="entry-header"><span class="sender">${sender}</span> <span class="time">${timeStr}</span></div><div class="entry-content">${marked.parse(formattedText)}</div>`;
+  const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 50;
   selectors.storyLog.appendChild(entry);
-  selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
+  if (wasAtBottom) {
+    selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
+  }
   return entry.querySelector('.entry-content');
 }
 
 async function handleAction(e, isFirstMove = false, retryAction = null, existingContentEl = null) {
   if (e) e.preventDefault();
   if (state.isThinking) return;
+
+  // 如果是第一次開始，清空初始化的系統提示訊息
+  if (isFirstMove) {
+    selectors.storyLog.innerHTML = '';
+  }
 
   const action = retryAction !== null ? retryAction : selectors.playerAction.value.trim();
   if (!action && !isFirstMove) return;
@@ -630,24 +584,36 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
 
   // 打字機循環
   const typeWriter = setInterval(() => {
-    if (displayedText.length < fullText.length) {
-      displayedText = fullText.slice(0, displayedText.length + 1);
-      const { narrative } = splitMetaBlock(displayedText);
-      const formattedNarrative = narrative.replace(/。([」』”’〉》）］｝]*)/g, '。$1\n\n');
+    const { narrative, isJson } = splitMetaBlock(fullText);
+
+    // 如果是 JSON 模式但還沒解析到 narrative，則等待
+    if (isJson && !narrative && !fullText.includes('"narrative"')) return;
+
+    if (displayedText.length < narrative.length) {
+      displayedText = narrative.slice(0, displayedText.length + 1);
+      // 只有在句號後沒有換行時才補換行，避免重複
+      const formattedNarrative = displayedText.replace(/\\n/g, '\n').replace(/。([」』”’〉》）］｝]*)(?!\n)/g, '。$1\n\n');
+
+      // 除錯用：在控制台印出目前處理的文字
+      // if (!isStreamActive) console.log("Final Narrative:", formattedNarrative);
+
+      const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 100;
       contentEl.innerHTML = marked.parse(formattedNarrative);
-      selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
+      if (wasAtBottom) {
+        selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
+      }
     } else if (!isStreamActive) {
       clearInterval(typeWriter);
       finalizeTurn();
     }
-  }, 90);
+  }, 100);
 
   async function finalizeTurn() {
     try {
-      if (!fullText.trim()) throw new Error('AI 未返回任何有效敘事內容。請檢查模型名稱與 API Key 是否正確。');
+      if (!fullText.trim()) throw new Error('AI 未返回任何有效內容。請檢查 API Key。');
 
-      const { narrative, metaText, hasCompleteMeta } = splitMetaBlock(fullText);
-      const { impact, suggested_options } = hasCompleteMeta ? parseMeta(metaText) : { impact: {}, suggested_options: [] };
+      const { narrative, meta, isJson } = splitMetaBlock(fullText);
+      const { impact, suggested_options } = isJson ? parseMeta(meta) : { impact: {}, suggested_options: [] };
       const resultData = { narrative: narrative.trim(), impact, suggested_options };
 
       state.game.history.push({ action: isFirstMove ? "START" : action, result: resultData, timestamp });
@@ -698,7 +664,10 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
           { role: 'system', content: dynamicSystemPrompt },
           { role: 'user', content: userContent }
         ],
-        temperature: 1.0, stream: true, max_tokens: 16384
+        temperature: 1.0,
+        stream: true,
+        max_tokens: 16384,
+        response_format: { type: "json_object" }
       })
     });
 
@@ -732,7 +701,7 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
 
           if (reasoning && state.thinkingEntry) {
             const textEl = state.thinkingEntry.querySelector('.thinking-text');
-            if (textEl) textEl.textContent = "正在演算因果...";
+            if (textEl) textEl.textContent = "正在演算因果";
           }
 
           if (delta) {
@@ -768,6 +737,7 @@ function setThinking(val) {
   }
 }
 
+
 function buildPrompt(action) {
   const g = state.game;
   return `場景：${state.world.scenes[g.scene]?.title} | 描述：${state.world.scenes[g.scene]?.description}
@@ -780,17 +750,22 @@ function showFloatingImpact(label, delta) {
   const el = document.createElement('div');
   const isPos = delta > 0;
   el.className = `floating-impact ${isPos ? 'positive' : 'negative'}`;
-  el.textContent = `${label} ${isPos ? '+' : ''}${delta}`;
+  el.innerHTML = `
+    <div class="impact-bubble">
+      <span class="impact-label">${label}</span>
+      <span class="impact-value">${isPos ? '+' : ''}${delta}</span>
+    </div>
+  `;
 
-  // 隨機化位置避免重疊
-  const x = window.innerWidth / 2 + (Math.random() - 0.5) * 300;
-  const y = window.innerHeight / 2 + (Math.random() - 0.5) * 150;
+  // 隨機化位置
+  const x = window.innerWidth / 2 + (Math.random() - 0.5) * 200;
+  const y = window.innerHeight / 2 + (Math.random() - 0.5) * 100;
 
   el.style.left = `${x}px`;
   el.style.top = `${y}px`;
 
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 1200);
+  setTimeout(() => el.remove(), 2500); // 增加顯示時間
 
   // 嘗試觸發側邊欄動畫
   const safeLabel = btoa(unescape(encodeURIComponent(label))).replace(/=/g, '');
@@ -843,7 +818,30 @@ function applyImpact(impact) {
     });
   }
 
-  if (impact.scene && state.world.scenes[impact.scene]) state.game.scene = impact.scene;
+  if (impact.scene && state.world.scenes[impact.scene]) {
+    state.game.scene = impact.scene;
+    // 更新故事進度（解析度）
+    if (!state.game.visitedScenes) state.game.visitedScenes = [];
+    if (!state.game.visitedScenes.includes(impact.scene)) {
+      state.game.visitedScenes.push(impact.scene);
+      const totalScenes = Object.keys(state.world.scenes).length;
+      const progress = Math.round((state.game.visitedScenes.length / totalScenes) * 100);
+      const oldResolution = state.game.player.abilities['解析度'] || 0;
+      if (progress > oldResolution) {
+        state.game.player.abilities['解析度'] = progress;
+        changes.push(['解析度', progress - oldResolution]);
+      }
+    }
+  }
+
+  // 自動更新算力 (Compute): 根據歷史長度微幅增加，代表系統累積的演算資源
+  const computeBonus = Math.floor(state.game.history.length / 5);
+  const currentCompute = state.game.player.abilities['算力'] || 0;
+  const newCompute = 10 + computeBonus; // 基礎 10 + 每 5 次行動 +1
+  if (newCompute > currentCompute) {
+    state.game.player.abilities['算力'] = newCompute;
+    changes.push(['算力', newCompute - currentCompute]);
+  }
 
   render();
 
