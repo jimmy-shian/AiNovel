@@ -346,7 +346,7 @@ body {
 }
 
 .stat-item .label {
-  font-size: 0.6rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -912,6 +912,11 @@ body {
     font-size: 0.8rem;
   }
 
+  .input-wrapper {
+    width: 85%;
+    margin-left: 15%;
+  }
+
   .main-content {
     height: 100%;
     padding-bottom: 1rem;
@@ -1160,8 +1165,6 @@ body {
 }
 
 .input-wrapper {
-  width: 85%;
-  margin-left: 15%;
   padding: 5px 10px;
   background: rgba(0, 0, 0, 0.15);
   border-radius: 20px;
