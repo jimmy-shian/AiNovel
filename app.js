@@ -610,7 +610,7 @@ function appendStory(text, type = 'narrative', timestamp = null) {
   const sender = type === 'action' ? 'PLAYER' : (type === 'system' ? 'SYSTEM' : 'AI');
   const formattedText = text.replace(/。([」』”’〉》）］｝]*)/g, '。$1\n\n');
   entry.innerHTML = `<div class="entry-header"><span class="sender">${sender}</span> <span class="time">${timeStr}</span></div><div class="entry-content">${marked.parse(formattedText)}</div>`;
-  const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 50;
+  const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 5;
   selectors.storyLog.appendChild(entry);
   if (wasAtBottom) {
     selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
@@ -888,27 +888,27 @@ function applyImpact(impact) {
 
   if (impact.scene && state.world.scenes[impact.scene]) {
     state.game.scene = impact.scene;
-    // 更新故事進度（解析度）
+    // 更新故事進度（天眼）
     if (!state.game.visitedScenes) state.game.visitedScenes = [];
     if (!state.game.visitedScenes.includes(impact.scene)) {
       state.game.visitedScenes.push(impact.scene);
       const totalScenes = Object.keys(state.world.scenes).length;
       const progress = Math.round((state.game.visitedScenes.length / totalScenes) * 100);
-      const oldResolution = state.game.player.abilities['解析度'] || 0;
+      const oldResolution = state.game.player.abilities['天眼'] || 0;
       if (progress > oldResolution) {
-        state.game.player.abilities['解析度'] = progress;
-        changes.push(['解析度', progress - oldResolution]);
+        state.game.player.abilities['天眼'] = progress;
+        changes.push(['天眼', progress - oldResolution]);
       }
     }
   }
 
-  // 自動更新算力 (Compute): 根據歷史長度微幅增加，代表系統累積的演算資源
+  // 自動更新悟性: 根據歷史長度微幅增加，代表修仙路上的領悟
   const computeBonus = Math.floor(state.game.history.length / 5);
-  const currentCompute = state.game.player.abilities['算力'] || 0;
+  const currentCompute = state.game.player.abilities['悟性'] || 0;
   const newCompute = 10 + computeBonus; // 基礎 10 + 每 5 次行動 +1
   if (newCompute > currentCompute) {
-    state.game.player.abilities['算力'] = newCompute;
-    changes.push(['算力', newCompute - currentCompute]);
+    state.game.player.abilities['悟性'] = newCompute;
+    changes.push(['悟性', newCompute - currentCompute]);
   }
 
   render();
