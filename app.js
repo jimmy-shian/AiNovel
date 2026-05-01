@@ -10,8 +10,9 @@ const SYSTEM_PROMPT = `你是《天衍九州》裁判。嚴禁廢話，僅回傳
 }
 [限制]
 1. narrative 必須以繁體中文撰寫，嚴格禁止出現任何數值（如 HP-10）。
-2. meta 所有欄位必填。選項 3-5 個，禁句號，每項 <20 字。
-3. 數值與能力變動必須轉化為「可感知的體驗描寫」（如：脈搏加速、代碼在視網膜閃爍）。`;
+2. meta 所有欄位為必填項目，不得遺漏。若數值無變動，必須回傳 "+0"、"null" 或 "none"。
+3. 選項 3-5 個，禁句號，每項 <20 字。
+4. 數值與能力變動必須轉化為「可感知的體驗描寫」（如：脈搏加速、代碼在視網膜閃爍）。`;
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const VERSION = "v1.0.8b"; // 基於 Commit 次數更新的版本號 git rev-list --count HEAD
@@ -34,6 +35,7 @@ const state = {
   game: null,
   historyLimit: 10, // 增加歷史紀錄長度
   isThinking: false,
+  currentTypewriter: null,
 };
 
 const selectors = {
@@ -104,6 +106,7 @@ function splitMetaBlock(text) {
 }
 
 function parseMeta(meta) {
+  if (!meta) return { impact: {}, suggested_options: [] };
   const impact = {};
   const suggested_options = meta.options || [];
 
@@ -631,9 +634,6 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
       // 只有在句號後沒有換行時才補換行，避免重複
       const formattedNarrative = displayedText.replace(/。([」』”’〉》）］｝]*)(?!\n)/g, '。$1\n\n');
 
-      // 除錯用：在控制台印出目前處理的文字
-      // if (!isStreamActive) console.log("Final Narrative:", formattedNarrative);
-
       const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 100;
       contentEl.innerHTML = marked.parse(formattedNarrative);
       if (wasAtBottom) {
@@ -645,19 +645,28 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
     }
   }, 100);
 
+  state.currentTypewriter = typeWriter;
+
   async function finalizeTurn() {
     try {
       if (!fullText.trim()) throw new Error('AI 未返回任何有效內容。請檢查 API Key。');
 
-      const { narrative, meta, isJson } = splitMetaBlock(fullText);
+      const { narrative, meta, isJson, isComplete } = splitMetaBlock(fullText);
       const { impact, suggested_options } = isJson ? parseMeta(meta) : { impact: {}, suggested_options: [] };
+
+      // 如果格式有問題但有敘事內容，先顯示敘事再顯示錯誤重試
+      if (!isJson || !isComplete) {
+        const errorMsg = !isJson ? "回傳格式非 JSON，數據未更新。" : "數據結構不完整，部分影響可能未套用。";
+        showError(errorMsg, isFirstMove, action, contentEl);
+      }
+
       const resultData = { narrative: narrative.trim(), impact, suggested_options };
 
       state.game.history.push({ action: isFirstMove ? "START" : action, result: resultData, timestamp });
       if (state.game.history.length > state.historyLimit) state.game.history.shift();
       applyImpact(resultData.impact || {});
       saveToStorage();
-      render(); // 確保側邊欄即時更新新能力與數值
+      render();
     } catch (err) {
       showError(err.message, isFirstMove, action, contentEl);
     } finally {
@@ -666,17 +675,30 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
   }
 
   function showError(msg, isFirst, act, el) {
-    el.innerHTML = `
-      <div class="error-container">
+    if (state.currentTypewriter) clearInterval(state.currentTypewriter);
+    
+    // 避免重複添加錯誤容器
+    if (el.querySelector('.error-container')) return;
+
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'error-container';
+    errorDiv.innerHTML = `
+      <div class="error-wrapper glass">
         <span class="error-msg">系統異常：${msg}</span>
         <button class="retry-btn glass" title="點擊重試">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
           重試
         </button>
       </div>`;
-    const retryBtn = el.querySelector('.retry-btn');
+    el.appendChild(errorDiv);
+
+    const retryBtn = errorDiv.querySelector('.retry-btn');
     if (retryBtn) {
-      retryBtn.onclick = () => handleAction(null, isFirst, act, el);
+      retryBtn.onclick = (e) => {
+        e.stopPropagation();
+        errorDiv.remove();
+        handleAction(null, isFirst, act, el);
+      };
     }
     setThinking(false);
   }
@@ -693,20 +715,32 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
       dynamicSystemPrompt += `\n\n【當前場景特殊規則：${sceneData.title}】\n${sceneData.systemPrompt}`;
     }
 
+    const model = selectors.modelSelect.value;
+    const payload = {
+      model: model,
+      messages: [
+        { role: 'system', content: dynamicSystemPrompt },
+        { role: 'user', content: userContent }
+      ],
+      temperature: 1.0,
+      stream: true,
+      max_tokens: 16384
+    };
+
+    // 強制所有模型回傳 JSON 物件
+    payload.response_format = { type: "json_object" };
+
+    // 針對 Qwen 模型的額外特殊配置
+    if (model.includes('qwen')) {
+      payload.temperature = 0.60;
+      payload.top_p = 0.95;
+      payload.chat_template_kwargs = { "enable_thinking": true };
+    }
+
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: selectors.modelSelect.value,
-        messages: [
-          { role: 'system', content: dynamicSystemPrompt },
-          { role: 'user', content: userContent }
-        ],
-        temperature: 1.0,
-        stream: true,
-        max_tokens: 16384,
-        response_format: { type: "json_object" }
-      })
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) throw new Error('API 請求失敗');
