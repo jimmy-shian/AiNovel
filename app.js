@@ -49,6 +49,7 @@ const state = {
   isThinking: false,
   currentTypewriter: null,
   quickActionIndex: -1,
+  lastStats: {}, // 用於紀錄上次渲染的數值以判斷是否需要動畫
 };
 
 const selectors = {
@@ -176,7 +177,7 @@ function appendThinking(timestamp = null) {
         </div>
       </div>
     </div>`;
-  const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 50;
+  const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 15;
   selectors.storyLog.appendChild(entry);
   if (wasAtBottom) {
     selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
@@ -411,6 +412,14 @@ function render() {
     const lastEntry = state.game.history[state.game.history.length - 1];
     renderQuickActions(lastEntry?.result?.suggested_options || []);
   }
+
+  // 更新最後渲染的數值快照
+  state.lastStats = {
+    '生命體徵': p.hp || 0,
+    '靈氣能級': p.sp || 0,
+    '系統威脅': p.threat || 0,
+    ...(p.abilities || {})
+  };
 }
 
 function renderSidebar() {
@@ -490,10 +499,11 @@ function renderCollapsedView(p) {
         <div class="orb-content">
           ${stats.map((s, i) => {
     const displayVal = s.label === '解析度' ? `${s.value}%` : s.value;
+    const hasChanged = state.lastStats[s.label] !== s.value;
     return `
             <div class="orb-stat-slide ${i === 0 ? 'active' : ''}" style="--stat-color: ${s.color}" data-label="${s.label}">
               <span class="orb-label">${s.label}</span>
-              <span class="orb-value">${createOdometerHTML(displayVal)}</span>
+              <span class="orb-value">${createOdometerHTML(displayVal, hasChanged)}</span>
             </div>
           `;
   }).join('')}
@@ -513,7 +523,7 @@ function renderCollapsedView(p) {
 
   // 在渲染後透過 setTimeout 觸發動畫
   setTimeout(() => {
-    const strips = document.querySelectorAll('.orb-stat-slide .odo-strip');
+    const strips = document.querySelectorAll('.orb-stat-slide .odo-strip.animate-me');
     strips.forEach(strip => {
       const val = strip.dataset.value;
       strip.style.transform = `translateY(-${val * 1.5}em)`;
@@ -539,16 +549,19 @@ function startOrbCycling() {
   }, 2500);
 }
 
-function createOdometerHTML(value) {
+function createOdometerHTML(value, animate = true) {
   const str = String(value);
   return `
     <div class="odometer">
       ${str.split('').map(char => {
     if (isNaN(parseInt(char))) return `<span class="odo-static">${char}</span>`;
     const digit = parseInt(char);
+    // 如果不開起動畫，直接設定最終位置
+    const initialTransform = animate ? '0em' : `-${digit * 1.5}em`;
+    const animateClass = animate ? 'animate-me' : '';
     return `
           <div class="odo-digit">
-            <div class="odo-strip" style="transform: translateY(0em)" data-value="${digit}">
+            <div class="odo-strip ${animateClass}" style="transform: translateY(${initialTransform})" data-value="${digit}">
               ${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<span>${n}</span>`).join('')}
             </div>
           </div>
@@ -560,16 +573,20 @@ function createOdometerHTML(value) {
 
 function renderStatItemHTML(label, value, color) {
   const safeLabel = btoa(unescape(encodeURIComponent(label))).replace(/=/g, '');
-  const odoHTML = createOdometerHTML(label === '解析度' ? `${value}%` : value);
+  const hasChanged = state.lastStats[label] !== value;
+  
+  const odoHTML = createOdometerHTML(label === '解析度' ? `${value}%` : value, hasChanged);
 
-  // 在渲染後透過 setTimeout 觸發動畫
-  setTimeout(() => {
-    const strips = document.querySelectorAll(`#stat-item-${safeLabel} .odo-strip`);
-    strips.forEach(strip => {
-      const val = strip.dataset.value;
-      strip.style.transform = `translateY(-${val * 1.5}em)`;
-    });
-  }, 50);
+  if (hasChanged) {
+    // 僅在變動時觸發動畫
+    setTimeout(() => {
+      const strips = document.querySelectorAll(`#stat-item-${safeLabel} .odo-strip.animate-me`);
+      strips.forEach(strip => {
+        const val = strip.dataset.value;
+        strip.style.transform = `translateY(-${val * 1.5}em)`;
+      });
+    }, 50);
+  }
 
   return `
     <div class="stat-item" id="stat-item-${safeLabel}">
@@ -667,12 +684,68 @@ function appendStory(text, type = 'narrative', timestamp = null) {
   const sender = type === 'action' ? 'PLAYER' : (type === 'system' ? 'SYSTEM' : 'AI');
   const formattedText = text ? text.replace(/。([」』"'〉》）］｝]*)/g, '。$1\n\n') : "";
   entry.innerHTML = `<div class="entry-header"><span class="sender">${sender}</span> <span class="time">${timeStr}</span></div><div class="entry-content">${text ? marked.parse(formattedText) : ''}</div>`;
-  const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 5;
+  const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 15;
   selectors.storyLog.appendChild(entry);
   if (wasAtBottom) {
     selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
   }
   return entry;
+}
+
+/**
+ * 平滑打字機效果器
+ */
+function createTypewriter(el, scrollContainer) {
+  let queue = "";
+  let fullContent = "";
+  let timer = null;
+  let isDone = false;
+
+  const type = () => {
+    if (queue.length > 0 || !isDone) {
+      if (queue.length > 0) {
+        // 固定速度：每次打 1 個字
+        const batchSize = 1;
+        const chars = queue.substring(0, batchSize);
+        queue = queue.substring(batchSize);
+        fullContent += chars;
+
+        const wasAtBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight < 30;
+        const formatted = fullContent.replace(/。([」』"'〉》）］｝]*)(?!\n)/g, '。$1\n\n');
+        el.innerHTML = marked.parse(formatted);
+
+        if (wasAtBottom) {
+          scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        }
+      }
+      timer = setTimeout(type, 75);
+    } else {
+      timer = null;
+    }
+  };
+
+  return {
+    push: (text) => {
+      queue += text;
+      if (!timer) type();
+    },
+    finish: () => {
+      isDone = true;
+    },
+    stop: () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      isDone = true;
+      queue = "";
+    },
+    wait: () => new Promise(resolve => {
+      const check = () => {
+        if (isDone && queue.length === 0) resolve();
+        else setTimeout(check, 50);
+      };
+      check();
+    })
+  };
 }
 
 // ========== 雙階段 Pipeline 核心 ==========
@@ -757,7 +830,7 @@ function extractNarrative(text) {
     const data = JSON.parse(text);
     return data.narrative || null;
   } catch (e) {
-    const match = text.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const match = text.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)/);
     if (match) {
       return match[1]
         .replace(/\\n/g, '\n')
@@ -819,6 +892,8 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
   while (!narrative && narrativeRetries < MAX_NARRATIVE_RETRIES) {
     if (narrativeRetries > 0) {
       console.warn(`[Phase1] 故事解析失敗，重跑第 ${narrativeRetries} 次...`);
+      if (state.currentTypewriter) state.currentTypewriter.stop();
+      contentEl.innerHTML = '';
     }
     try {
       const sceneData = state.world.scenes[state.game.scene];
@@ -832,22 +907,25 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
         : buildPrompt(action);
 
       let displayedLen = 0;
+      const typewriter = createTypewriter(contentEl, selectors.storyLog);
+      state.currentTypewriter = typewriter;
+
       const fullText = await streamAPICall(systemPrompt, userContent, (delta, accumulated) => {
         const currentNarrative = extractNarrative(accumulated) || "";
         if (currentNarrative.length > displayedLen) {
+          const newText = currentNarrative.substring(displayedLen);
           displayedLen = currentNarrative.length;
-          const formatted = currentNarrative.replace(/。([」』"'〉》）］｝]*)(?!\n)/g, '。$1\n\n');
-          contentEl.innerHTML = marked.parse(formatted);
-          const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 100;
-          if (wasAtBottom) selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
+          typewriter.push(newText);
         }
       });
+
+      typewriter.finish();
+      // 不在這裡等待，讓 Phase 2 可以並行開始
 
       narrative = extractNarrative(fullText);
       if (narrative) {
         console.log(`[Phase1] 故事生成完成 (${narrative.length} 字)`);
-        const formatted = narrative.replace(/。([」』"'〉》）］｝]*)(?!\n)/g, '。$1\n\n');
-        contentEl.innerHTML = marked.parse(formatted);
+        // 不在此處立即更新 innerHTML，讓打字機自然完成
       } else {
         console.warn(`[Phase1] 未能從回傳中提取 narrative，原始內容:`, fullText.slice(0, 200));
       }
@@ -900,6 +978,22 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
     metaRetries++;
   }
 
+  if (!meta) {
+    console.warn('[Phase2] 數據推演失敗，將使用預設空數據');
+    meta = { impact: {}, suggested_options: ["繼續探索", "觀察四周", "調息打坐", "查看狀態"] };
+  }
+
+  // 重要：在此處等待打字機完全結束，再顯示數據提示泡泡
+  if (state.currentTypewriter) {
+    await state.currentTypewriter.wait();
+  }
+
+  // 確保最終內容完全渲染且格式正確
+  if (narrative) {
+    const finalFormatted = narrative.replace(/。([」』"'〉》）］｝]*)(?!\n)/g, '。$1\n\n');
+    contentEl.innerHTML = marked.parse(finalFormatted);
+  }
+
   const { impact, suggested_options } = parseMeta(meta);
   const resultData = { narrative: narrative.trim(), impact, suggested_options };
 
@@ -919,7 +1013,7 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
 }
 
 function showRetryError(msg, isFirst, act, el, entry) {
-  if (state.currentTypewriter) clearInterval(state.currentTypewriter);
+  if (state.currentTypewriter) state.currentTypewriter.stop();
   if (el.querySelector('.error-container')) return;
 
   const errorDiv = document.createElement('div');
@@ -993,11 +1087,11 @@ function showFloatingImpact(label, delta) {
 
   container.appendChild(el);
 
-  // 5秒後淡出並移除
+  // 3秒後淡出並移除
   setTimeout(() => {
     el.classList.add('fade-out');
-    setTimeout(() => el.remove(), 600); // 等待 CSS 動畫結束
-  }, 5000);
+    setTimeout(() => el.remove(), 300); // 等待 CSS 動畫結束
+  }, 3000);
 
   // 嘗試觸發側邊欄動畫
   const safeLabel = btoa(unescape(encodeURIComponent(label))).replace(/=/g, '');

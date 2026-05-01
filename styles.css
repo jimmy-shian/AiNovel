@@ -631,7 +631,8 @@ body {
   min-width: 44px;
 }
 
-.quick-btn:hover, .quick-btn.selected {
+.quick-btn:hover,
+.quick-btn.selected {
   background: rgba(197, 160, 89, 0.2);
   border-color: var(--accent);
   color: var(--accent);
@@ -1419,11 +1420,13 @@ select.hidden {
 /* Floating Impact Animations */
 #impact-container {
   position: fixed;
-  bottom: 15%; /* Start from roughly middle-bottom or where user action happens */
+  bottom: 15%;
+  /* Start from roughly middle-bottom or where user action happens */
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  flex-direction: column-reverse; /* Newest at bottom, pushing others UP */
+  flex-direction: column;
+  /* Newest at bottom, pushing older ones UP */
   gap: 12px;
   z-index: 10000;
   pointer-events: none;
@@ -1446,18 +1449,18 @@ select.hidden {
   background: rgba(18, 26, 18, 0.95);
   backdrop-filter: blur(20px);
   border: 1px solid var(--accent);
-  padding: 15px 60px;
-  border-radius: 12px;
+  padding: 10px 30px;
+  border-radius: 10px;
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 40px;
-  box-shadow: 
-    0 20px 50px rgba(0, 0, 0, 0.8),
-    0 0 30px var(--accent)33,
-    inset 0 0 20px rgba(255, 255, 255, 0.05);
-  min-width: 450px;
+  gap: 25px;
+  box-shadow:
+    0 15px 35px rgba(0, 0, 0, 0.6),
+    0 0 20px var(--accent)22,
+    inset 0 0 15px rgba(255, 255, 255, 0.05);
+  min-width: 250px;
   position: relative;
   overflow: hidden;
 }
@@ -1491,23 +1494,35 @@ select.hidden {
 
 .impact-value {
   font-family: var(--font-heading);
-  font-size: 2.8rem;
+  font-size: 1.8rem;
   font-weight: 800;
   color: var(--accent);
-  text-shadow: 0 0 15px var(--accent);
-  letter-spacing: -1px;
+  text-shadow: 0 0 10px var(--accent);
+  letter-spacing: -0.5px;
 }
 
-.floating-impact.positive .impact-bubble { border-color: #10b981; }
-.floating-impact.positive .impact-value { color: #10b981; }
-.floating-impact.negative .impact-bubble { border-color: #ef4444; }
-.floating-impact.negative .impact-value { color: #ef4444; }
+.floating-impact.positive .impact-bubble {
+  border-color: #10b981;
+}
+
+.floating-impact.positive .impact-value {
+  color: #10b981;
+}
+
+.floating-impact.negative .impact-bubble {
+  border-color: #ef4444;
+}
+
+.floating-impact.negative .impact-value {
+  color: #ef4444;
+}
 
 @keyframes impactPopIn {
   0% {
     opacity: 0;
     transform: translateY(30px) scale(0.8);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -1519,6 +1534,7 @@ select.hidden {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+
   100% {
     opacity: 0;
     transform: translateY(-40px) scale(0.9);
@@ -1545,7 +1561,8 @@ select.hidden {
 .odo-strip {
   display: flex;
   flex-direction: column;
-  transition: transform 1.8s cubic-bezier(0.23, 1, 0.32, 1); /* 機械感：緩慢且清晰 */
+  transition: transform 1.8s cubic-bezier(0.23, 1, 0.32, 1);
+  /* 機械感：緩慢且清晰 */
 }
 
 .odo-strip span {
@@ -1566,7 +1583,8 @@ select.hidden {
   align-items: center;
   justify-content: center;
   height: 1.5em;
-  overflow: visible; /* Odometer handles its own clipping */
+  overflow: visible;
+  /* Odometer handles its own clipping */
 }
 
 .stat-item.pulse {
