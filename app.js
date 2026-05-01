@@ -1,52 +1,17 @@
-const SYSTEM_PROMPT = `你是《天衍九州》的裁判核心。[使用繁體中文輸出內容]
-請務必以 JSON 格式回傳內容，不得包含任何 JSON 以外的文字。
-
-[STYLE_RULE]
-- 東方玄幻 + 賽博龐克
-- 數據/系統元素需「融入敘事」（如：空間閃爍代碼、靈氣位元化），嚴禁條列式輸出
-- 使用感官描述
-- 嚴格使用"繁體中文"輸出
-
-[JUDGEMENT]
-- 成功 / 部分成功 / 失敗
-- 不合適的請求 → 嚴重的系統干涉失敗，斟酌扣除能力值或增加威脅值(需寫入故事)
-
-[NUMERIC_RULE]
-- HP/SP/能力值: -30 ~ +30 整數（代表相對增減）
-- THREAT: >= 0
-
-[JSON_STRUCTURE]
-{
-  "narrative": "故事敘事內容（使用 Markdown 分段）",
+const SYSTEM_PROMPT = `你是《天衍九州》裁判。嚴禁廢話，僅回傳標準 JSON。
+[風格] 東方玄幻+賽博龐克。將數據融入感官敘事，禁條列。
+[格式] {
+  "narrative": "分段敘事。禁數值、禁 meta 資訊。",
   "meta": {
-    "hp": "+0",
-    "sp": "+0",
-    "threat": "+0",
-    "scene": "null",
-    "new_ability": "新能力名=數值 (若無則為 none)",
-    "upd_ability": "現有能力名=增減值 (若無則為 none, 多項用分號隔開)",
+    "hp": "+0", "sp": "+0", "threat": "+0", "scene": "null",
+    "new_ability": "能力=值/none", "upd_ability": "能力=增減/none",
     "options": ["選項1", "選項2", "選項3"]
   }
 }
-
-[NUMERIC_FORMAT]
-- 能力格式: "能力名=50" 或 "能力1=10;能力2=-5"
-- 屬性格式: "+10" 或 "-5" (字串)
-
-[OPTIONS_RULE]
-- 必須3到5個之間的選項
-- 每個選項 <=20字
-- 不得解釋或使用句號
-
-[NARRATIVE_RULE]
-- narrative 欄位必須維持純文學敘事，不得出現任何數值（如 HP-10、+5 等）。
-- 所有數值變動與技能獲得必須僅寫在 meta 欄位中。
-- 數值變化與技能獲得需轉化為「可感知的體驗描寫」，例如身體負擔、環境變化、感官異常等。
-- 技能獲得需以「認知、記憶、能力覺醒」的方式呈現。
-
-[CRITICAL_WARNING]
-- 嚴禁在 narrative 中出現「系統數據」、「狀態更新」或類似的條列式總結。
-- 絕對不要在 narrative 中重複 meta 欄位內的技術資訊。`;
+[限制]
+1. narrative 必須以繁體中文撰寫，嚴格禁止出現任何數值（如 HP-10）。
+2. meta 所有欄位必填。選項 3-5 個，禁句號，每項 <20 字。
+3. 數值與能力變動必須轉化為「可感知的體驗描寫」（如：脈搏加速、代碼在視網膜閃爍）。`;
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const VERSION = "v1.0.8b"; // 基於 Commit 次數更新的版本號 git rev-list --count HEAD
@@ -103,9 +68,14 @@ let currentSaveMode = 'export';
 state.thinkingEntry = null;
 
 function splitMetaBlock(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return { narrative: "", meta: null, isJson: false, isComplete: false };
+
+  // 判斷是否可能是 JSON (以 { 開頭)
+  const isPossiblyJson = trimmed.startsWith('{');
+
   try {
     const data = JSON.parse(text);
-    console.log("Parsed JSON Narrative:", data.narrative);
     return {
       narrative: data.narrative || "",
       meta: data.meta || {},
@@ -113,23 +83,23 @@ function splitMetaBlock(text) {
       isComplete: true
     };
   } catch (e) {
-    // 串流中，尋找 "narrative": "..."
-    const narrativeMatch = text.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)/);
-    if (narrativeMatch) {
-      let rawContent = narrativeMatch[1];
-      // 更加強大的解碼邏輯
-      let narrative = rawContent
-        .replace(/\\n/g, '\n')
-        .replace(/\\"/g, '"')
-        .replace(/\\t/g, '\t')
-        .replace(/\\\\/g, '\\');
-
-      // 處理模型可能輸出的字面值 "\n" (有時模型會輸出成文字而非轉義字)
-      narrative = narrative.replace(/\\n/g, '\n');
-
-      return { narrative, meta: null, isJson: true, isComplete: false };
+    if (isPossiblyJson) {
+      // 串流中，尋找 "narrative": "..."
+      const narrativeMatch = text.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)/);
+      if (narrativeMatch) {
+        let rawContent = narrativeMatch[1];
+        let narrative = rawContent
+          .replace(/\\n/g, '\n')
+          .replace(/\\"/g, '"')
+          .replace(/\\t/g, '\t')
+          .replace(/\\\\/g, '\\');
+        return { narrative, meta: null, isJson: true, isComplete: false };
+      }
+      // 如果是 JSON 格式但還沒看到 narrative，回傳空字串但標記為 JSON
+      return { narrative: "", meta: null, isJson: true, isComplete: false };
     }
-    return { narrative: "", meta: null, isJson: false, isComplete: false };
+    // 非 JSON 格式，直接當作 narrative (Fallback)
+    return { narrative: text, meta: null, isJson: false, isComplete: false };
   }
 }
 
@@ -654,12 +624,12 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
     const { narrative, isJson } = splitMetaBlock(fullText);
 
     // 如果是 JSON 模式但還沒解析到 narrative，則等待
-    if (isJson && !narrative && !fullText.includes('"narrative"')) return;
+    if (isJson && !narrative && fullText.includes('"narrative"')) return;
 
     if (displayedText.length < narrative.length) {
       displayedText = narrative.slice(0, displayedText.length + 1);
       // 只有在句號後沒有換行時才補換行，避免重複
-      const formattedNarrative = displayedText.replace(/\\n/g, '\n').replace(/。([」』”’〉》）］｝]*)(?!\n)/g, '。$1\n\n');
+      const formattedNarrative = displayedText.replace(/。([」』”’〉》）］｝]*)(?!\n)/g, '。$1\n\n');
 
       // 除錯用：在控制台印出目前處理的文字
       // if (!isStreamActive) console.log("Final Narrative:", formattedNarrative);
@@ -808,10 +778,18 @@ function setThinking(val) {
 
 function buildPrompt(action) {
   const g = state.game;
-  return `場景：${state.world.scenes[g.scene]?.title} | 描述：${state.world.scenes[g.scene]?.description}
-玩家：HP ${g.player.hp}, SP ${g.player.sp}, 威脅 ${g.player.threat}, 能力 ${JSON.stringify(g.player.abilities)}
-最近史：${JSON.stringify(g.history?.slice(-3) || [])}
-玩家行動：${action}`;
+  return `【環境狀態】
+場景：${state.world.scenes[g.scene]?.title}
+描述：${state.world.scenes[g.scene]?.description}
+玩家狀態：HP ${g.player.hp}, SP ${g.player.sp}, 威脅 ${g.player.threat}, 能力 ${JSON.stringify(g.player.abilities)}
+
+【歷史紀錄】
+${g.history?.slice(-3).map(h => `- 行動: ${h.action}\n- 結果: ${h.result?.narrative.slice(0, 50)}...`).join('\n') || '無'}
+
+【玩家當前行動】
+${action}
+
+請根據以上資訊，以裁判身份推演結果，並僅回傳符合規範的 JSON 格式。`;
 }
 
 function showFloatingImpact(label, delta) {
