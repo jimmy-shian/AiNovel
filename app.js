@@ -450,12 +450,15 @@ function renderCollapsedView(p) {
       <!-- 手機版：懸浮靈球 -->
       <div class="stat-orb mobile-only" id="mobile-orb">
         <div class="orb-content">
-          ${stats.map((s, i) => `
-            <div class="orb-stat-slide ${i === 0 ? 'active' : ''}" style="--stat-color: ${s.color}">
+          ${stats.map((s, i) => {
+    const displayVal = s.label === '解析度' ? `${s.value}%` : s.value;
+    return `
+            <div class="orb-stat-slide ${i === 0 ? 'active' : ''}" style="--stat-color: ${s.color}" data-label="${s.label}">
               <span class="orb-label">${s.label}</span>
-              <span class="orb-value">${s.label === '解析度' ? s.value + '%' : s.value}</span>
+              <span class="orb-value">${createOdometerHTML(displayVal)}</span>
             </div>
-          `).join('')}
+          `;
+  }).join('')}
         </div>
         <div class="orb-ring"></div>
       </div>
@@ -469,6 +472,15 @@ function renderCollapsedView(p) {
       </div>
     </div>
   `;
+
+  // 在渲染後透過 setTimeout 觸發動畫
+  setTimeout(() => {
+    const strips = document.querySelectorAll('.orb-stat-slide .odo-strip');
+    strips.forEach(strip => {
+      const val = strip.dataset.value;
+      strip.style.transform = `translateY(-${val * 1.5}em)`;
+    });
+  }, 50);
 
   startOrbCycling();
 }
@@ -489,13 +501,42 @@ function startOrbCycling() {
   }, 2500);
 }
 
+function createOdometerHTML(value) {
+  const str = String(value);
+  return `
+    <div class="odometer">
+      ${str.split('').map(char => {
+    if (isNaN(parseInt(char))) return `<span class="odo-static">${char}</span>`;
+    const digit = parseInt(char);
+    return `
+          <div class="odo-digit">
+            <div class="odo-strip" style="transform: translateY(0em)" data-value="${digit}">
+              ${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<span>${n}</span>`).join('')}
+            </div>
+          </div>
+        `;
+  }).join('')}
+    </div>
+  `;
+}
+
 function renderStatItemHTML(label, value, color) {
   const safeLabel = btoa(unescape(encodeURIComponent(label))).replace(/=/g, '');
-  const displayValue = label === '解析度' ? `${value}%` : value;
+  const odoHTML = createOdometerHTML(label === '解析度' ? `${value}%` : value);
+
+  // 在渲染後透過 setTimeout 觸發動畫
+  setTimeout(() => {
+    const strips = document.querySelectorAll(`#stat-item-${safeLabel} .odo-strip`);
+    strips.forEach(strip => {
+      const val = strip.dataset.value;
+      strip.style.transform = `translateY(-${val * 1.5}em)`;
+    });
+  }, 50);
+
   return `
     <div class="stat-item" id="stat-item-${safeLabel}">
       <span class="label">${label}</span>
-      <span class="value">${displayValue}</span>
+      <span class="value">${odoHTML}</span>
       <div class="value-bar-container">
         <div class="value-bar" id="bar-${safeLabel}" style="width: ${Math.min(100, value)}%; background: ${color}; box-shadow: 0 0 10px ${color}66;"></div>
       </div>
@@ -785,14 +826,14 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
       console.warn(`[Phase2] 數據解析失敗，重跑第 ${metaRetries} 次...`);
     }
     try {
-      const context = isFirstMove 
+      const context = isFirstMove
         ? `系統初始化第一幕。場景：${state.world.startingState.scene}。玩家狀態：HP 100, SP 100, 威脅 0`
         : buildPrompt(action);
 
       const metaUserContent = META_PROMPT
         .replace('{{CONTEXT}}', context)
         .replace('{{NARRATIVE}}', narrative);
-        
+
       const metaText = await streamAPICall(
         '你是《天衍九州》數據裁判。僅回傳 JSON 格式的數值數據。',
         metaUserContent,
@@ -893,15 +934,12 @@ function showFloatingImpact(label, delta) {
     </div>
   `;
 
-  // 隨機化位置
-  const x = window.innerWidth / 2 + (Math.random() - 0.5) * 200;
-  const y = window.innerHeight / 2 + (Math.random() - 0.5) * 100;
-
-  el.style.left = `${x}px`;
+  // 居中對齊
+  el.style.left = `50%`;
   el.style.top = `${y}px`;
 
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2500); // 增加顯示時間
+  setTimeout(() => el.remove(), 8000); // 顯著增加顯示時間 (8秒)
 
   // 嘗試觸發側邊欄動畫
   const safeLabel = btoa(unescape(encodeURIComponent(label))).replace(/=/g, '');
