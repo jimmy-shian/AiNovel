@@ -1,22 +1,27 @@
-const STORY_PROMPT = `你是《天衍九州》裁判。負責撰寫具備賽博龐克與東方玄幻風格的文學敘事。
-[風格] 感官描述與數據閃爍融合。嚴禁出現技術數值（如 HP-10），僅輸出純文字故事。
-[限制] 必須使用繁體中文。`;
+// ========== 雙階段 Prompt 架構 ==========
+// Phase 1: 故事生成（純敘事，無數值）
+const NARRATIVE_PROMPT = `你是《天衍九州》裁判。嚴禁廢話，僅回傳標準 JSON。
+[風格] 東方玄幻+賽博龐克。將數據融入感官敘事，禁條列。
+[格式] {"narrative": "故事內容"}
+[限制]
+1. 以繁體中文撰寫，嚴格禁止出現任何數值（如 HP-10、+5）。
+2. 數值變動需轉化為「可感知的體驗描寫」（如：脈搏加速、代碼在視網膜閃爍）。
+3. 使用 Markdown 分段。禁止出現 meta、系統數據等技術資訊。`;
 
-const ANALYSIS_PROMPT = `你是《天衍九州》核心分析模組。
-根據給出的「故事敘事」與「玩家行動」，分析並回傳標準 JSON 數據。
-[格式] {
-  "meta": {
-    "hp": "+0", "sp": "+0", "threat": "+0", "scene": "null",
-    "new_ability": "能力=值/none", "upd_ability": "能力=增減/none",
-    "options": ["選項1", "選項2", "選項3"]
-  }
+// Phase 2: 數據計算（基於敘事推演數值與選項）
+const META_PROMPT = `你是《天衍九州》數據裁判。根據以下故事敘事，推演對應的遊戲數值變化與後續選項。
+[敘事內容]
+「{{NARRATIVE}}」
+[格式] 僅回傳 JSON：
+{
+  "hp": "+0", "sp": "+0", "threat": "+0", "scene": "null",
+  "new_ability": "能力=值/none", "upd_ability": "能力=增減/none",
+  "options": ["選項1", "選項2", "選項3"]
 }
-[規則] 
-1. 所有欄位必填。HP/SP/能力增減 (-30~+30)。
+[限制]
+1. 所有欄位為必填。若無變動回傳 "+0"、"null" 或 "none"。
 2. 選項 3-5 個，禁句號，每項 <20 字。
-3. 僅回傳 JSON 內容，嚴禁任何解釋。`;
-
-const REPAIR_PROMPT = ANALYSIS_PROMPT; // 復用分析提示詞進行修復
+3. 數值範圍 -30 ~ +30 整數。`;
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const VERSION = "v1.1.6b"; // 基於 Commit 次數更新的版本號 git rev-list --count HEAD
@@ -59,28 +64,53 @@ const selectors = {
   btnCloseSave: document.getElementById('close-save-modal'),
   btnCloseSettings: document.getElementById('close-settings'),
   sidebar: document.getElementById('sidebar'),
+  sidebarContent: document.getElementById('sidebar-content'),
+  sidebarExpanded: document.getElementById('sidebar-expanded'),
+  sidebarCollapsed: document.getElementById('sidebar-collapsed'),
   btnToggleSidebar: document.getElementById('toggle-sidebar'),
+  // Custom Select Selectors
   modelSelectContainer: document.getElementById('model-select-container'),
   modelSelectTrigger: document.getElementById('model-select-trigger'),
   modelSelectOptions: document.getElementById('model-select-options'),
   modelSelectedValue: document.querySelector('#model-select-trigger .selected-value'),
 };
 
+let currentSaveMode = 'export';
+state.thinkingEntry = null;
+
 function splitMetaBlock(text) {
   const trimmed = text.trim();
-  if (!trimmed) return { narrative: "", meta: null, isJson: false };
+  if (!trimmed) return { narrative: "", meta: null, isJson: false, isComplete: false };
+
+  // 判斷是否可能是 JSON (以 { 開頭)
+  const isPossiblyJson = trimmed.startsWith('{');
 
   try {
     const data = JSON.parse(text);
-    if (data.meta) {
-      return { narrative: data.narrative || "", meta: data.meta, isJson: true };
-    }
-    if (data.hp || data.options) {
-      return { narrative: "", meta: data, isJson: true };
-    }
-    return { narrative: text, meta: null, isJson: false };
+    return {
+      narrative: data.narrative || "",
+      meta: data.meta || {},
+      isJson: true,
+      isComplete: true
+    };
   } catch (e) {
-    return { narrative: text, meta: null, isJson: false };
+    if (isPossiblyJson) {
+      // 串流中，尋找 "narrative": "..."
+      const narrativeMatch = text.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)/);
+      if (narrativeMatch) {
+        let rawContent = narrativeMatch[1];
+        let narrative = rawContent
+          .replace(/\\n/g, '\n')
+          .replace(/\\"/g, '"')
+          .replace(/\\t/g, '\t')
+          .replace(/\\\\/g, '\\');
+        return { narrative, meta: null, isJson: true, isComplete: false };
+      }
+      // 如果是 JSON 格式但還沒看到 narrative，回傳空字串但標記為 JSON
+      return { narrative: "", meta: null, isJson: true, isComplete: false };
+    }
+    // 非 JSON 格式，直接當作 narrative (Fallback)
+    return { narrative: text, meta: null, isJson: false, isComplete: false };
   }
 }
 
@@ -109,13 +139,6 @@ function parseMeta(meta) {
     }
     return out;
   };
-
-  if (meta.hp) impact.hp = parseDeltaNumber(meta.hp);
-  if (meta.sp) impact.sp = parseDeltaNumber(meta.sp);
-  if (meta.threat) impact.threat = parseDeltaNumber(meta.threat);
-  if (meta.scene && meta.scene !== 'null') impact.scene = meta.scene;
-  if (meta.new_ability) impact.new_abilities = parsePairs(meta.new_ability);
-  if (meta.upd_ability) impact.update_abilities = parsePairs(meta.upd_ability);
 
   if (meta.hp) impact.hp = parseDeltaNumber(meta.hp);
   if (meta.sp) impact.sp = parseDeltaNumber(meta.sp);
@@ -536,12 +559,15 @@ function renderQuickActions(options) {
   options.slice(0, 4).forEach((opt, index) => {
     const btn = document.createElement('button');
     btn.className = 'quick-btn glass';
+
     const displayOpt = opt.length > 5 ? opt.slice(0, 5) + '...' : opt;
+
     btn.innerHTML = `
       <span class="quick-index">${index + 1}</span>
       <span class="quick-text">${displayOpt}</span>
       <div class="quick-tooltip">${opt}</div>
     `;
+
     btn.addEventListener('click', () => {
       selectors.playerAction.value = opt;
       selectors.playerAction.focus();
@@ -556,7 +582,7 @@ function appendStory(text, type = 'narrative', timestamp = null) {
   const date = timestamp ? new Date(timestamp) : new Date();
   const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   const sender = type === 'action' ? 'PLAYER' : (type === 'system' ? 'SYSTEM' : 'AI');
-  const formattedText = text ? text.replace(/。([」』”’〉》）］｝]*)/g, '。$1\n\n') : "";
+  const formattedText = text ? text.replace(/。([」』"'〉》）］｝]*)/g, '。$1\n\n') : "";
   entry.innerHTML = `<div class="entry-header"><span class="sender">${sender}</span> <span class="time">${timeStr}</span></div><div class="entry-content">${text ? marked.parse(formattedText) : ''}</div>`;
   const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 5;
   selectors.storyLog.appendChild(entry);
@@ -566,11 +592,112 @@ function appendStory(text, type = 'narrative', timestamp = null) {
   return entry;
 }
 
-async function handleAction(e, isFirstMove = false, retryAction = null, existingEntry = null, retryCounts = { story: 0, meta: 0 }, presetNarrative = null) {
-  if (e) e.preventDefault();
-  if (state.isThinking && !retryAction && !presetNarrative) return;
+// ========== 雙階段 Pipeline 核心 ==========
 
-  if (isFirstMove) selectors.storyLog.innerHTML = '';
+// 通用 API 串流呼叫
+async function streamAPICall(systemPrompt, userContent, onDelta) {
+  const apiKey = selectors.apiKey.value.trim();
+  const url = CONFIG.useProxy ? CONFIG.proxyUrl : CONFIG.directUrl;
+  const model = selectors.modelSelect.value;
+
+  const payload = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userContent }
+    ],
+    temperature: 1.0,
+    stream: true,
+    max_tokens: 16384,
+    response_format: { type: "json_object" }
+  };
+
+  if (model.includes('qwen')) {
+    payload.temperature = 0.60;
+    payload.top_p = 0.95;
+    payload.chat_template_kwargs = { "enable_thinking": true };
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) throw new Error(`API 請求失敗 (${response.status})`);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let fullText = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    for (const line of chunk.split('\n')) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+      const dataStr = trimmedLine.slice(6);
+      if (dataStr === '[DONE]') break;
+      try {
+        const data = JSON.parse(dataStr);
+        if (data.error) throw new Error(data.error.message || "API 內部錯誤");
+        const delta = data.choices?.[0]?.delta?.content || "";
+        if (delta) {
+          fullText += delta;
+          if (onDelta) onDelta(delta, fullText);
+        }
+      } catch (e) {
+        if (e.message !== "JSON.parse error" && !e.name?.includes("SyntaxError")) {
+          throw e;
+        }
+      }
+    }
+  }
+
+  return fullText;
+}
+
+// 從串流結果中提取 narrative
+function extractNarrative(text) {
+  if (!text.trim()) return null;
+  try {
+    const data = JSON.parse(text);
+    return data.narrative || null;
+  } catch (e) {
+    const match = text.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (match) {
+      return match[1]
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/\\t/g, '\t')
+        .replace(/\\\\/g, '\\');
+    }
+    if (!text.trim().startsWith('{')) return text;
+    return null;
+  }
+}
+
+// 從串流結果中提取 meta
+function extractMeta(text) {
+  if (!text.trim()) return null;
+  try {
+    const data = JSON.parse(text);
+    if (data.meta) return data.meta;
+    if (data.options || data.hp !== undefined) return data;
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function handleAction(e, isFirstMove = false, retryAction = null) {
+  if (e) e.preventDefault();
+  if (state.isThinking) return;
+
+  if (isFirstMove) {
+    selectors.storyLog.innerHTML = '';
+  }
 
   const action = retryAction !== null ? retryAction : selectors.playerAction.value.trim();
   if (!action && !isFirstMove) return;
@@ -582,166 +709,116 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
   }
 
   const timestamp = Date.now();
-  if (!isFirstMove && retryAction === null && !presetNarrative) {
+  if (!isFirstMove && retryAction === null) {
     appendStory(action, 'action', timestamp);
     selectors.playerAction.value = '';
   }
 
   setThinking(true);
-  const currentEntry = existingEntry || appendStory('', 'narrative', timestamp);
+  const currentEntry = appendStory('', 'narrative', timestamp);
   const contentEl = currentEntry.querySelector('.entry-content');
+  contentEl.innerHTML = '';
 
-  let finalNarrative = presetNarrative || "";
-  let finalMeta = null;
+  // ========== Phase 1: 故事生成 ==========
+  let narrative = null;
+  let narrativeRetries = 0;
+  const MAX_NARRATIVE_RETRIES = 3;
 
-  let isRetrying = false;
-  try {
-    // 獲取場景特殊規則
-    const sceneData = state.world.scenes[state.game.scene];
-    let sceneRules = "";
-    if (sceneData && sceneData.systemPrompt) {
-      sceneRules = `\n\n【當前場景特殊規則：${sceneData.title}】\n${sceneData.systemPrompt}`;
+  while (!narrative && narrativeRetries < MAX_NARRATIVE_RETRIES) {
+    if (narrativeRetries > 0) {
+      console.warn(`[Phase1] 故事解析失敗，重跑第 ${narrativeRetries} 次...`);
     }
+    try {
+      const sceneData = state.world.scenes[state.game.scene];
+      let systemPrompt = NARRATIVE_PROMPT;
+      if (sceneData && sceneData.systemPrompt) {
+        systemPrompt += `\n\n【當前場景特殊規則：${sceneData.title}】\n${sceneData.systemPrompt}`;
+      }
 
-    // 階段一：生成敘事
-    if (!finalNarrative) {
-      console.log(`[Phase 1] 生成故事中... (嘗試: ${retryCounts.story + 1})`);
-      const storyResponse = await fetchAI(STORY_PROMPT + sceneRules, isFirstMove ? "初始化第一幕" : buildPrompt(action), true);
+      const userContent = isFirstMove
+        ? `系統初始化完成。請為玩家開始第一幕。當前場景：${state.world.startingState.scene}。`
+        : buildPrompt(action);
 
-      let displayedText = "";
-      const typeWriter = setInterval(() => {
-        if (displayedText.length < finalNarrative.length) {
-          displayedText = finalNarrative.slice(0, displayedText.length + 1);
-          const formatted = displayedText.replace(/。([」』”’〉》）］｝]*)(?!\n)/g, '。$1\n\n');
+      let displayedLen = 0;
+      const fullText = await streamAPICall(systemPrompt, userContent, (delta, accumulated) => {
+        const currentNarrative = extractNarrative(accumulated) || "";
+        if (currentNarrative.length > displayedLen) {
+          displayedLen = currentNarrative.length;
+          const formatted = currentNarrative.replace(/。([」』"'〉》）］｝]*)(?!\n)/g, '。$1\n\n');
           contentEl.innerHTML = marked.parse(formatted);
-          selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
+          const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 100;
+          if (wasAtBottom) selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
         }
-      }, 50);
-
-      await readStream(storyResponse, (chunk) => {
-        finalNarrative += chunk;
       });
 
-      clearInterval(typeWriter);
-      contentEl.innerHTML = marked.parse(finalNarrative.replace(/。([」』”’〉》）］｝]*)(?!\n)/g, '。$1\n\n'));
-
-      if (!finalNarrative.trim()) {
-        if (retryCounts.story < 2) {
-          console.warn("[System] 故事生成為空，重試階段一...");
-          isRetrying = true;
-          currentEntry.remove();
-          return handleAction(null, isFirstMove, action, null, { ...retryCounts, story: retryCounts.story + 1 });
-        }
-        throw new Error("故事生成失敗，AI 未回傳內容。");
+      narrative = extractNarrative(fullText);
+      if (narrative) {
+        console.log(`[Phase1] 故事生成完成 (${narrative.length} 字)`);
+        const formatted = narrative.replace(/。([」』"'〉》）］｝]*)(?!\n)/g, '。$1\n\n');
+        contentEl.innerHTML = marked.parse(formatted);
+      } else {
+        console.warn(`[Phase1] 未能從回傳中提取 narrative，原始內容:`, fullText.slice(0, 200));
       }
+    } catch (err) {
+      console.error(`[Phase1] 串流錯誤:`, err.message);
     }
+    narrativeRetries++;
+  }
 
-    // 階段二：數據分析
-    console.log(`[Phase 2] 分析數據中... (嘗試: ${retryCounts.meta + 1})`);
-    const analysisInput = `玩家狀態：${JSON.stringify(state.game.player)}\n玩家行動：${action}\n故事敘事：\n${finalNarrative}`;
-    const analysisResponse = await fetchAI(ANALYSIS_PROMPT + sceneRules, analysisInput, false);
-    const analysisData = await analysisResponse.json();
+  if (!narrative) {
+    console.error('[Phase1] 故事生成失敗，已達最大重試次數');
+    showRetryError('故事生成失敗', isFirstMove, action, contentEl, currentEntry);
+    setThinking(false);
+    return;
+  }
 
-    if (analysisData.error) throw new Error(analysisData.error.message || "API 內部錯誤");
+  // ========== Phase 2: 數據推演 ==========
+  let meta = null;
+  let metaRetries = 0;
+  const MAX_META_RETRIES = 2;
 
-    const rawMeta = analysisData.choices?.[0]?.message?.content;
-    const parsed = splitMetaBlock(rawMeta);
-    finalMeta = parsed.meta;
-
-    if (!finalMeta) {
-      if (retryCounts.meta < 2) {
-        console.warn("[System] Meta 解析失敗，重試階段二...");
-        isRetrying = true;
-        return handleAction(null, isFirstMove, action, currentEntry, { ...retryCounts, meta: retryCounts.meta + 1 }, finalNarrative);
+  while (!meta && metaRetries < MAX_META_RETRIES) {
+    if (metaRetries > 0) {
+      console.warn(`[Phase2] 數據解析失敗，重跑第 ${metaRetries} 次...`);
+    }
+    try {
+      const metaUserContent = META_PROMPT.replace('{{NARRATIVE}}', narrative);
+      const metaText = await streamAPICall(
+        '你是《天衍九州》數據裁判。僅回傳 JSON 格式的數值數據。',
+        metaUserContent,
+        null
+      );
+      meta = extractMeta(metaText);
+      if (meta) {
+        console.log('[Phase2] 數據推演完成', meta);
+      } else {
+        console.warn(`[Phase2] 未能解析 meta，原始內容:`, metaText.slice(0, 200));
       }
-      console.error("[System] Meta 解析失敗次數過多，跳過數據更新。");
+    } catch (err) {
+      console.error(`[Phase2] 串流錯誤:`, err.message);
     }
-
-    // 完成回合與更新畫面
-    const { impact, suggested_options } = parseMeta(finalMeta || {});
-    const resultData = { narrative: finalNarrative.trim(), impact, suggested_options };
-
-    state.game.history.push({ action: isFirstMove ? "START" : action, result: resultData, timestamp });
-    if (state.game.history.length > state.historyLimit) state.game.history.shift();
-
-    applyImpact(resultData.impact || {});
-    saveToStorage();
-    render();
-
-    console.log("[System] 全階段完成", resultData);
-
-  } catch (err) {
-    console.error("[System] 雙階段執行錯誤:", err);
-    showError(err.message, isFirstMove, action, currentEntry);
-  } finally {
-    if (!isRetrying) {
-      setThinking(false);
-    }
+    metaRetries++;
   }
+
+  const { impact, suggested_options } = parseMeta(meta);
+  const resultData = { narrative: narrative.trim(), impact, suggested_options };
+
+  if (!meta) {
+    console.warn('[Phase2] 數據推演失敗，已達最大重試次數，僅保存敘事');
+    showRetryError('數據推演失敗，故事已保存', isFirstMove, action, contentEl, currentEntry);
+  }
+
+  console.log("[System] 雙階段完成", resultData);
+
+  state.game.history.push({ action: isFirstMove ? "START" : action, result: resultData, timestamp });
+  if (state.game.history.length > state.historyLimit) state.game.history.shift();
+  applyImpact(resultData.impact || {});
+  saveToStorage();
+  render();
+  setThinking(false);
 }
 
-async function fetchAI(systemPrompt, userPrompt, stream = false) {
-  const url = CONFIG.useProxy ? CONFIG.proxyUrl : CONFIG.directUrl;
-  const apiKey = selectors.apiKey.value.trim();
-  const model = selectors.modelSelect.value;
-
-  const payload = {
-    model: model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt }
-    ],
-    temperature: model.includes('qwen') ? 0.6 : 1.0,
-    stream: stream,
-    max_tokens: 16384
-  };
-
-  if (model.includes('qwen')) {
-    payload.top_p = 0.95;
-    payload.chat_template_kwargs = { "enable_thinking": true };
-  }
-
-  if (!stream) {
-    payload.response_format = { type: "json_object" };
-  }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error?.message || `API 請求失敗: ${response.status}`);
-  }
-  return response;
-}
-
-async function readStream(response, onChunk) {
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value);
-    const lines = chunk.split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data: ')) continue;
-      const dataStr = trimmed.slice(6);
-      if (dataStr === '[DONE]') break;
-      try {
-        const data = JSON.parse(dataStr);
-        const content = data.choices?.[0]?.delta?.content || "";
-        if (content) onChunk(content);
-      } catch (e) { }
-    }
-  }
-}
-
-function showError(msg, isFirst, act, entry) {
-  const el = entry.querySelector('.entry-content');
+function showRetryError(msg, isFirst, act, el, entry) {
   if (state.currentTypewriter) clearInterval(state.currentTypewriter);
   if (el.querySelector('.error-container')) return;
 
@@ -750,15 +827,21 @@ function showError(msg, isFirst, act, entry) {
   errorDiv.innerHTML = `
     <div class="error-wrapper glass">
       <span class="error-msg">系統異常：${msg}</span>
-      <button class="retry-btn glass">重試</button>
+      <button class="retry-btn glass" title="點擊重試">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+        重試
+      </button>
     </div>`;
   el.appendChild(errorDiv);
 
-  errorDiv.querySelector('.retry-btn').onclick = (e) => {
-    e.stopPropagation();
-    entry.remove();
-    handleAction(null, isFirst, act);
-  };
+  const retryBtn = errorDiv.querySelector('.retry-btn');
+  if (retryBtn) {
+    retryBtn.onclick = (e) => {
+      e.stopPropagation();
+      entry.remove();
+      handleAction(null, isFirst, act);
+    };
+  }
 }
 
 
