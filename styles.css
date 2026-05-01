@@ -631,7 +631,7 @@ body {
   min-width: 44px;
 }
 
-.quick-btn:hover {
+.quick-btn:hover, .quick-btn.selected {
   background: rgba(197, 160, 89, 0.2);
   border-color: var(--accent);
   color: var(--accent);

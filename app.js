@@ -48,6 +48,7 @@ const state = {
   historyLimit: 10, // 增加歷史紀錄長度
   isThinking: false,
   currentTypewriter: null,
+  quickActionIndex: -1,
 };
 
 const selectors = {
@@ -346,6 +347,43 @@ function setupEventListeners() {
       selectors.actionForm.dispatchEvent(new Event('submit'));
     }
   });
+
+  // Tab 鍵循環選擇快捷動作
+  selectors.playerAction.addEventListener('keydown', (e) => {
+    const btns = selectors.quickActions.querySelectorAll('.quick-btn');
+    if (btns.length === 0) return;
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      state.quickActionIndex = (state.quickActionIndex + 1) % btns.length;
+      updateQuickActionSelection(btns);
+    } else if (e.key === 'ArrowDown' && state.quickActionIndex === -1) {
+      e.preventDefault();
+      state.quickActionIndex = 0;
+      updateQuickActionSelection(btns);
+    } else if (e.key === 'Escape') {
+      state.quickActionIndex = -1;
+      updateQuickActionSelection(btns);
+    } else if (e.key !== 'Enter') {
+      // 只要開始輸入其他文字，就取消高亮狀態
+      state.quickActionIndex = -1;
+      btns.forEach(b => b.classList.remove('selected'));
+    }
+  });
+}
+
+function updateQuickActionSelection(btns) {
+  btns.forEach((btn, idx) => {
+    if (idx === state.quickActionIndex) {
+      btn.classList.add('selected');
+      const fullText = btn.querySelector('.quick-tooltip').textContent;
+      selectors.playerAction.value = fullText;
+      // 保持游標在最後
+      selectors.playerAction.setSelectionRange(fullText.length, fullText.length);
+    } else {
+      btn.classList.remove('selected');
+    }
+  });
 }
 
 function loadFromStorage() {
@@ -599,6 +637,7 @@ function attachSidebarListeners() {
 }
 
 function renderQuickActions(options) {
+  state.quickActionIndex = -1;
   selectors.quickActions.innerHTML = '';
   options.slice(0, 4).forEach((opt, index) => {
     const btn = document.createElement('button');
@@ -639,27 +678,36 @@ function appendStory(text, type = 'narrative', timestamp = null) {
 // ========== 雙階段 Pipeline 核心 ==========
 
 // 通用 API 串流呼叫
-async function streamAPICall(systemPrompt, userContent, onDelta) {
+async function streamAPICall(systemPrompt, userContent, onDelta, enableThinking = true) {
   const apiKey = selectors.apiKey.value.trim();
   const url = CONFIG.useProxy ? CONFIG.proxyUrl : CONFIG.directUrl;
   const model = selectors.modelSelect.value;
 
+  let finalSystemPrompt = systemPrompt;
+  if (model.includes('gpt-oss')) {
+    finalSystemPrompt += enableThinking ? "\n\nReasoning: high" : "\n\nReasoning: low";
+  }
+
   const payload = {
     model,
     messages: [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: finalSystemPrompt },
       { role: 'user', content: userContent }
     ],
     temperature: 1.0,
+    top_p: 1,
+    max_tokens: 131072,
     stream: true,
-    max_tokens: 16384,
     response_format: { type: "json_object" }
   };
 
   if (model.includes('qwen')) {
     payload.temperature = 0.60;
     payload.top_p = 0.95;
-    payload.chat_template_kwargs = { "enable_thinking": true };
+    payload.max_tokens = 16384;
+    if (enableThinking) {
+      payload.chat_template_kwargs = { "enable_thinking": true };
+    }
   }
 
   const response = await fetch(url, {
@@ -837,7 +885,8 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
       const metaText = await streamAPICall(
         '你是《天衍九州》數據裁判。僅回傳 JSON 格式的數值數據。',
         metaUserContent,
-        null
+        null,
+        false // 數據推演階段禁用思考模式
       );
       meta = extractMeta(metaText);
       if (meta) {
@@ -935,6 +984,7 @@ function showFloatingImpact(label, delta) {
   `;
 
   // 居中對齊
+  const y = window.innerHeight / 2;
   el.style.left = `50%`;
   el.style.top = `${y}px`;
 
