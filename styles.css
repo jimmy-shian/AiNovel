@@ -25,14 +25,14 @@ body {
   color: var(--text-main);
   font-family: var(--font-body);
   overflow: hidden;
-  height: 100dvh;
+  height: 95dvh;
   width: 100vw;
   background-image: linear-gradient(135deg, #121A12 0%, #1B261B 100%);
 }
 
 .app-container {
   display: flex;
-  height: 100vh;
+  height: 95dvh;
   padding: 25px;
   gap: 25px;
   position: relative;
