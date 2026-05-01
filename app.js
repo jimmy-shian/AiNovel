@@ -14,8 +14,13 @@ const SYSTEM_PROMPT = `你是《天衍九州》裁判。嚴禁廢話，僅回傳
 3. 選項 3-5 個，禁句號，每項 <20 字。
 4. 數值與能力變動必須轉化為「可感知的體驗描寫」（如：脈搏加速、代碼在視網膜閃爍）。`;
 
+const REPAIR_PROMPT = `你是數據修復模組。剛才生成的故事敘事如下：
+「{{NARRATIVE}}」
+請根據上述內容，以 JSON 格式回傳對應的 meta 數據（hp, sp, threat, scene, new_ability, upd_ability, options）。
+【注意】只需回傳 meta 物件即可，例如：{"meta": {...}}。`;
+
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const VERSION = "v1.0.8b"; // 基於 Commit 次數更新的版本號 git rev-list --count HEAD
+const VERSION = "v1.1.6b"; // 基於 Commit 次數更新的版本號 git rev-list --count HEAD
 
 // 讓單一換行也能在畫面上保留，避免敘事擠成一大段
 if (window.marked?.setOptions) {
@@ -581,19 +586,21 @@ function appendStory(text, type = 'narrative', timestamp = null) {
   const date = timestamp ? new Date(timestamp) : new Date();
   const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   const sender = type === 'action' ? 'PLAYER' : (type === 'system' ? 'SYSTEM' : 'AI');
-  const formattedText = text.replace(/。([」』”’〉》）］｝]*)/g, '。$1\n\n');
-  entry.innerHTML = `<div class="entry-header"><span class="sender">${sender}</span> <span class="time">${timeStr}</span></div><div class="entry-content">${marked.parse(formattedText)}</div>`;
+  const formattedText = text ? text.replace(/。([」』”’〉》）］｝]*)/g, '。$1\n\n') : "";
+  entry.innerHTML = `<div class="entry-header"><span class="sender">${sender}</span> <span class="time">${timeStr}</span></div><div class="entry-content">${text ? marked.parse(formattedText) : ''}</div>`;
   const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 5;
   selectors.storyLog.appendChild(entry);
   if (wasAtBottom) {
     selectors.storyLog.scrollTop = selectors.storyLog.scrollHeight;
   }
-  return entry.querySelector('.entry-content');
+  return entry;
 }
 
-async function handleAction(e, isFirstMove = false, retryAction = null, existingContentEl = null) {
+
+
+async function handleAction(e, isFirstMove = false, retryAction = null, existingEntry = null, retryCounts = { total: 0, meta: 0 }, repairNarrative = null) {
   if (e) e.preventDefault();
-  if (state.isThinking) return;
+  if (state.isThinking && !retryAction && !repairNarrative) return;
 
   // 如果是第一次開始，清空初始化的系統提示訊息
   if (isFirstMove) {
@@ -610,13 +617,14 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
   }
 
   const timestamp = Date.now();
-  if (!isFirstMove && retryAction === null) {
+  if (!isFirstMove && retryAction === null && !repairNarrative) {
     appendStory(action, 'action', timestamp);
     selectors.playerAction.value = '';
   }
 
   setThinking(true);
-  const contentEl = existingContentEl || appendStory('', 'narrative', timestamp);
+  const currentEntry = existingEntry || appendStory('', 'narrative', timestamp);
+  const contentEl = currentEntry.querySelector('.entry-content');
   contentEl.innerHTML = '';
   let fullText = "";
   let displayedText = "";
@@ -626,12 +634,10 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
   const typeWriter = setInterval(() => {
     const { narrative, isJson } = splitMetaBlock(fullText);
 
-    // 如果是 JSON 模式但還沒解析到 narrative，則等待
     if (isJson && !narrative && fullText.includes('"narrative"')) return;
 
     if (displayedText.length < narrative.length) {
       displayedText = narrative.slice(0, displayedText.length + 1);
-      // 只有在句號後沒有換行時才補換行，避免重複
       const formattedNarrative = displayedText.replace(/。([」』”’〉》）］｝]*)(?!\n)/g, '。$1\n\n');
 
       const wasAtBottom = selectors.storyLog.scrollHeight - selectors.storyLog.scrollTop - selectors.storyLog.clientHeight < 100;
@@ -648,19 +654,38 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
   state.currentTypewriter = typeWriter;
 
   async function finalizeTurn() {
+    let isRetrying = false;
     try {
       if (!fullText.trim()) throw new Error('AI 未返回任何有效內容。請檢查 API Key。');
 
       const { narrative, meta, isJson, isComplete } = splitMetaBlock(fullText);
-      const { impact, suggested_options } = isJson ? parseMeta(meta) : { impact: {}, suggested_options: [] };
 
-      // 如果格式有問題但有敘事內容，先顯示敘事再顯示錯誤重試
-      if (!isJson || !isComplete) {
-        const errorMsg = !isJson ? "回傳格式非 JSON，數據未更新。" : "數據結構不完整，部分影響可能未套用。";
+      // 修復模式下，如果 AI 沒給 narrative，我們用原本保留的
+      const effectiveNarrative = (repairNarrative && !narrative.trim()) ? repairNarrative : narrative;
+
+      // 自動重試邏輯
+      if (!isJson || !isComplete || (repairNarrative && !meta)) {
+        if (!effectiveNarrative && retryCounts.total < 3) {
+          console.warn(`[System] 故事完全解析失敗，發動第 ${retryCounts.total + 1} 次因果重構...`);
+          isRetrying = true;
+          currentEntry.remove();
+          return handleAction(null, isFirstMove, action, null, { ...retryCounts, total: retryCounts.total + 1 });
+        }
+        else if (effectiveNarrative && retryCounts.meta < 2) {
+          console.warn(`[System] JSON 損毀或缺失，發動第 ${retryCounts.meta + 1} 次數據修復...`);
+          isRetrying = true;
+          currentEntry.remove();
+          return handleAction(null, isFirstMove, action, null, { ...retryCounts, meta: retryCounts.meta + 1 }, effectiveNarrative);
+        }
+
+        const errorMsg = !isJson ? "格式解析失敗" : "數據不完整";
         showError(errorMsg, isFirstMove, action, contentEl);
       }
 
-      const resultData = { narrative: narrative.trim(), impact, suggested_options };
+      const { impact, suggested_options } = parseMeta(meta);
+      const resultData = { narrative: effectiveNarrative.trim(), impact, suggested_options };
+
+      console.log("[System] 解析完成", resultData);
 
       state.game.history.push({ action: isFirstMove ? "START" : action, result: resultData, timestamp });
       if (state.game.history.length > state.historyLimit) state.game.history.shift();
@@ -668,16 +693,18 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
       saveToStorage();
       render();
     } catch (err) {
+      console.error("[System] 執行階段錯誤:", err);
       showError(err.message, isFirstMove, action, contentEl);
     } finally {
-      setThinking(false);
+      if (!isRetrying) {
+        setThinking(false);
+      }
     }
   }
 
   function showError(msg, isFirst, act, el) {
     if (state.currentTypewriter) clearInterval(state.currentTypewriter);
-    
-    // 避免重複添加錯誤容器
+
     if (el.querySelector('.error-container')) return;
 
     const errorDiv = document.createElement('div');
@@ -696,8 +723,8 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
     if (retryBtn) {
       retryBtn.onclick = (e) => {
         e.stopPropagation();
-        errorDiv.remove();
-        handleAction(null, isFirst, act, el);
+        currentEntry.remove(); // 移除舊對話
+        handleAction(null, isFirst, act);
       };
     }
     setThinking(false);
@@ -705,9 +732,15 @@ async function handleAction(e, isFirstMove = false, retryAction = null, existing
 
   try {
     const url = CONFIG.useProxy ? CONFIG.proxyUrl : CONFIG.directUrl;
-    const userContent = isFirstMove
-      ? `系統初始化完成。請為玩家開始第一幕。當前場景：${state.world.startingState.scene}。`
-      : buildPrompt(action);
+
+    let userContent = "";
+    if (repairNarrative) {
+      userContent = REPAIR_PROMPT.replace('{{NARRATIVE}}', repairNarrative);
+    } else if (isFirstMove) {
+      userContent = `系統初始化完成。請為玩家開始第一幕。當前場景：${state.world.startingState.scene}。`;
+    } else {
+      userContent = buildPrompt(action);
+    }
 
     const sceneData = state.world.scenes[state.game.scene];
     let dynamicSystemPrompt = SYSTEM_PROMPT;
