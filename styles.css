@@ -1417,12 +1417,29 @@ select.hidden {
 }
 
 /* Floating Impact Animations */
-.floating-impact {
+#impact-container {
   position: fixed;
+  bottom: 15%; /* Start from roughly middle-bottom or where user action happens */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse; /* Newest at bottom, pushing others UP */
+  gap: 12px;
+  z-index: 10000;
+  pointer-events: none;
+  align-items: center;
+  transition: all 0.5s ease;
+}
+
+.floating-impact {
   pointer-events: none;
   font-family: var(--font-body);
-  z-index: 9999;
-  animation: floatUpFade 4.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: impactPopIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.floating-impact.fade-out {
+  animation: impactFadeAway 0.6s ease-in forwards;
 }
 
 .impact-bubble {
@@ -1430,7 +1447,7 @@ select.hidden {
   backdrop-filter: blur(20px);
   border: 1px solid var(--accent);
   padding: 15px 60px;
-  border-radius: 12px; /* Changed to more rectangular/wide style */
+  border-radius: 12px;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -1440,7 +1457,7 @@ select.hidden {
     0 20px 50px rgba(0, 0, 0, 0.8),
     0 0 30px var(--accent)33,
     inset 0 0 20px rgba(255, 255, 255, 0.05);
-  min-width: 450px; /* Wider as requested */
+  min-width: 450px;
   position: relative;
   overflow: hidden;
 }
@@ -1465,8 +1482,6 @@ select.hidden {
   box-shadow: 0 0 15px #ef4444;
 }
 
-
-
 .impact-label {
   font-size: 0.8rem;
   color: var(--text-muted);
@@ -1476,64 +1491,37 @@ select.hidden {
 
 .impact-value {
   font-family: var(--font-heading);
-  font-size: 2.8rem; /* Slightly larger */
+  font-size: 2.8rem;
   font-weight: 800;
   color: var(--accent);
   text-shadow: 0 0 15px var(--accent);
   letter-spacing: -1px;
 }
 
-.floating-impact.positive .impact-bubble {
-  border-color: #10b981;
-}
+.floating-impact.positive .impact-bubble { border-color: #10b981; }
+.floating-impact.positive .impact-value { color: #10b981; }
+.floating-impact.negative .impact-bubble { border-color: #ef4444; }
+.floating-impact.negative .impact-value { color: #ef4444; }
 
-.floating-impact.positive .impact-value {
-  color: #10b981;
-}
-
-.floating-impact.positive .impact-bubble::after {
-  border-top-color: #10b981;
-}
-
-.floating-impact.negative .impact-bubble {
-  border-color: #ef4444;
-}
-
-.floating-impact.negative .impact-value {
-  color: #ef4444;
-}
-
-.floating-impact.negative .impact-bubble::after {
-  border-top-color: #ef4444;
-}
-
-.floating-impact.positive {
-  color: #10b981;
-}
-
-.floating-impact.negative {
-  color: #ef4444;
-}
-
-@keyframes floatUpFade {
+@keyframes impactPopIn {
   0% {
     opacity: 0;
-    transform: translate(-50%, 40px) scale(0.95);
+    transform: translateY(30px) scale(0.8);
   }
-
-  8% {
+  100% {
     opacity: 1;
-    transform: translate(-50%, 0) scale(1);
+    transform: translateY(0) scale(1);
   }
+}
 
-  92% {
+@keyframes impactFadeAway {
+  0% {
     opacity: 1;
-    transform: translate(-50%, -40px) scale(1);
+    transform: translateY(0) scale(1);
   }
-
   100% {
     opacity: 0;
-    transform: translate(-50%, -60px) scale(0.98);
+    transform: translateY(-40px) scale(0.9);
   }
 }
 

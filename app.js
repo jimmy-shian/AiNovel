@@ -973,6 +973,14 @@ ${action}
 }
 
 function showFloatingImpact(label, delta) {
+  // 確保容器存在
+  let container = document.getElementById('impact-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'impact-container';
+    document.body.appendChild(container);
+  }
+
   const el = document.createElement('div');
   const isPos = delta > 0;
   el.className = `floating-impact ${isPos ? 'positive' : 'negative'}`;
@@ -983,13 +991,13 @@ function showFloatingImpact(label, delta) {
     </div>
   `;
 
-  // 居中對齊
-  const y = window.innerHeight / 2;
-  el.style.left = `50%`;
-  el.style.top = `${y}px`;
+  container.appendChild(el);
 
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 8000); // 顯著增加顯示時間 (8秒)
+  // 5秒後淡出並移除
+  setTimeout(() => {
+    el.classList.add('fade-out');
+    setTimeout(() => el.remove(), 600); // 等待 CSS 動畫結束
+  }, 5000);
 
   // 嘗試觸發側邊欄動畫
   const safeLabel = btoa(unescape(encodeURIComponent(label))).replace(/=/g, '');
