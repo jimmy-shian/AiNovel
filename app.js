@@ -8,9 +8,12 @@ const NARRATIVE_PROMPT = `你是《天衍九州》裁判。嚴禁廢話，僅回
 2. 數值變動需轉化為「可感知的體驗描寫」（如：脈搏加速、代碼在視網膜閃爍）。
 3. 使用 Markdown 分段。禁止出現 meta、系統數據等技術資訊。`;
 
-// Phase 2: 數據計算（基於敘事推演數值與選項）
-const META_PROMPT = `你是《天衍九州》數據裁判。根據以下故事敘事，推演對應的遊戲數值變化與後續選項。
-[敘事內容]
+const META_PROMPT = `你是《天衍九州》數據裁判。根據以下背景資訊與本輪故事，推演遊戲數值變化與後續選項。
+
+【背景資訊與狀態】
+{{CONTEXT}}
+
+【本輪故事敘事】
 「{{NARRATIVE}}」
 [格式] 僅回傳 JSON：
 {
@@ -782,7 +785,14 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
       console.warn(`[Phase2] 數據解析失敗，重跑第 ${metaRetries} 次...`);
     }
     try {
-      const metaUserContent = META_PROMPT.replace('{{NARRATIVE}}', narrative);
+      const context = isFirstMove 
+        ? `系統初始化第一幕。場景：${state.world.startingState.scene}。玩家狀態：HP 100, SP 100, 威脅 0`
+        : buildPrompt(action);
+
+      const metaUserContent = META_PROMPT
+        .replace('{{CONTEXT}}', context)
+        .replace('{{NARRATIVE}}', narrative);
+        
       const metaText = await streamAPICall(
         '你是《天衍九州》數據裁判。僅回傳 JSON 格式的數值數據。',
         metaUserContent,
