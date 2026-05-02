@@ -2,7 +2,7 @@
 // 可調整的參數盡量集中在這裡，避免散落各處難以維護。
 const SETTINGS = {
   // 基於 Commit 次數更新的版本號：git rev-list --count HEAD
-  VERSION: "v1.1.6b",
+  VERSION: "v1.2.5b",
 
   // localStorage keys
   STORAGE_KEYS: {
@@ -24,7 +24,7 @@ const SETTINGS = {
       temperature: 1.0,
       top_p: 1,
       max_tokens: 131072,
-      stream: true,
+      stream: false,
       response_format: { type: "json_object" },
     },
     // qwen 系列（支援 thinking 開關）
