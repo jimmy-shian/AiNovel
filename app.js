@@ -1008,8 +1008,8 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
       }
 
       const userContent = isFirstMove
-        ? `系統初始化完成。請為玩家開始第一幕。當前場景：${state.world.startingState.scene}。`
-        : buildPrompt(action);
+        ? `系統初始化完成。請為玩家開始第一幕。當前場景：${state.game.scene}。\n描述：${state.world.scenes[state.game.scene]?.description}`
+        : buildNarrativePrompt(action);
 
       let displayedLen = 0;
       const typewriter = createTypewriter(contentEl, selectors.storyLog);
@@ -1059,8 +1059,8 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
     }
     try {
       const context = isFirstMove
-        ? `系統初始化第一幕。場景：${state.world.startingState.scene}。玩家狀態：HP 100, SP 100, 威脅 0`
-        : buildPrompt(action);
+        ? buildMetaPromptContext("開始遊戲")
+        : buildMetaPromptContext(action);
 
       const metaUserContent = META_PROMPT
         .replace('{{CONTEXT}}', context)
@@ -1155,20 +1155,62 @@ function setThinking(val) {
 }
 
 
-function buildPrompt(action) {
+// [Phase 1 專用] 構建純敘事背景，不包含選項，避免干擾 AI 創作
+function buildNarrativePrompt(action) {
   const g = state.game;
-  return `【環境狀態】
-場景：${state.world.scenes[g.scene]?.title}
-描述：${state.world.scenes[g.scene]?.description}
-玩家狀態：HP ${g.player.hp}, SP ${g.player.sp}, 威脅 ${g.player.threat}, 能力 ${JSON.stringify(g.player.abilities)}
+  const scene = state.world.scenes[g.scene];
 
-【歷史紀錄】
-${g.history?.slice(-3).map(h => `- 行動: ${h.action}\n- 結果: ${h.result?.narrative.slice(0, 50)}...`).join('\n') || '無'}
+  let content = `【環境狀態】
+場景：${scene?.title || g.scene}
+描述：${scene?.description || ''}`;
 
-【玩家當前行動】
-${action}
+  if (scene?.npc?.length > 0) {
+    content += `\n登場角色：${scene.npc.map(n => `${n.name}（${n.description}）`).join('、')}`;
+  }
 
-請根據以上資訊，以裁判身份推演結果，並僅回傳符合規範的 JSON 格式。`;
+  if (scene?.events?.length > 0) {
+    content += `\n環境線索：${scene.events.join('、')}`;
+  }
+
+  content += `\n\n【玩家狀態】
+HP ${g.player.hp}, SP ${g.player.sp}, 威脅 ${g.player.threat}, 能力 ${JSON.stringify(g.player.abilities)}`;
+
+  content += `\n\n【歷史紀錄】
+${g.history?.slice(-2).map(h => `- 行動: ${h.action}\n- 結果: ${h.result?.narrative.slice(0, 50)}...`).join('\n') || '無'}`;
+
+  content += `\n\n【玩家當前行動】
+${action}`;
+
+  return content;
+}
+
+// [Phase 2 專用] 包含預設選項、情節大綱與場景連結，引導 AI 產出正確的數據與選項
+function buildMetaPromptContext(action) {
+  const g = state.game;
+  const scene = state.world.scenes[g.scene];
+
+  // 基礎背景資訊
+  let content = buildNarrativePrompt(action);
+
+  // 加入劇情導向參考
+  content += `\n\n【劇情導向與邏輯參考】`;
+
+  if (scene?.options?.length > 0) {
+    content += `\n預設路徑參考（僅供參考，請勿照抄，請根據故事現狀進行合併、修改或延伸）：\n- ${scene.options.join('\n- ')}`;
+  }
+
+  if (scene?.connected_scenes?.length > 0) {
+    content += `\n可通往區域（若玩家移動，請務必從中選擇目的地）：${scene.connected_scenes.join('、')}`;
+  }
+
+  const plotOutline = scene?.trueEvent || scene?.hiddenEvent;
+  if (plotOutline) {
+    content += `\n下一個事件描述：${plotOutline}`;
+  }
+
+  content += `\n\n請根據以上資訊與故事內容推演數據。選項需展現因果關係，且能強烈引導玩家朝向大綱或新區域前進。`;
+
+  return content;
 }
 
 function showFloatingImpact(label, delta) {
