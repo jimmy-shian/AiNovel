@@ -58,7 +58,7 @@ const SETTINGS = {
 
 // ========== Prompt（雙階段） ==========
 // Phase 1: 故事生成（純敘事，無數值）
-const NARRATIVE_PROMPT = `你是《天衍九州》裁判。嚴禁廢話，僅回傳標準 JSON。
+const NARRATIVE_PROMPT = `zh-TW 你是《天衍九州》裁判。嚴禁廢話，僅回傳標準 JSON。
 [風格] 東方玄幻+賽博龐克。將數據融入感官敘事，禁條列。
 [格式] {"narrative": "故事內容(以繁體中文撰寫)"}
 [限制]
@@ -66,21 +66,21 @@ const NARRATIVE_PROMPT = `你是《天衍九州》裁判。嚴禁廢話，僅回
 2. 數值變動需轉化為「可感知的體驗描寫」（如：脈搏加速、代碼在視網膜閃爍）。
 3. 使用 Markdown 分段。禁止出現 meta、系統數據等技術資訊。`;
 
-const META_PROMPT = `你是《天衍九州》數據裁判。根據以下背景資訊與本輪故事，推演遊戲數值變化與後續選項。
+const META_PROMPT = `zh-TW 你是《天衍九州》數據裁判。根據以下背景資訊與本輪故事，推演遊戲數值變化與後續選項。
 
 【背景資訊與狀態】
 {{CONTEXT}}
 
 【本輪故事敘事】
 「{{NARRATIVE}}」
-[格式] 僅回傳 JSON：
+[格式] 僅回傳 JSON，並使用 繁體中文 zh-TW 撰寫：
 {
   "hp": "+0", "sp": "+0", "threat": "+0", "scene": "null",
   "new_ability": "能力=值/none", "upd_ability": "能力=增減/none",
   "options": ["選項1(以繁體中文撰寫)", "選項2(以繁體中文撰寫)", "選項3(以繁體中文撰寫)"]
 }
 [限制]
-1. 以繁體中文撰寫
+1. 以繁體中文 zh-TW 撰寫。
 2. 所有欄位為必填。若無變動回傳 "+0"、"null" 或 "none"。
 3. 選項 3-5 個，禁句號，每項 <20 字。
 4. 數值範圍 -30 ~ +30 整數。`;
@@ -919,6 +919,16 @@ async function streamAPICall(systemPrompt, userContent, onDelta, enableThinking 
 
   if (!response.ok) throw new Error(`API 請求失敗 (${response.status})`);
 
+  // --- 支援非串流回傳 (Non-streaming) ---
+  if (!payload.stream) {
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message || "API 內部錯誤");
+    const content = data.choices?.[0]?.message?.content || "";
+    if (onDelta && content) onDelta(content, content);
+    return content;
+  }
+
+  // --- 處理串流回傳 (Streaming) ---
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let fullText = "";
