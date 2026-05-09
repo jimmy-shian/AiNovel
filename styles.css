@@ -278,6 +278,7 @@ body {
   flex-direction: column;
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-width: none;
 }
 
@@ -527,7 +528,7 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 30px;
+  padding: 30px 10px 20px 15px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.01);
 }
@@ -536,7 +537,7 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 15px;
+  padding-right: 3px;
   display: flex;
   flex-direction: column;
   gap: 40px;
@@ -569,6 +570,7 @@ body {
   font-size: 1.1rem;
   word-wrap: break-word;
   overflow-x: hidden;
+  padding-right: 2.5rem;
 }
 
 .story-entry.action {
@@ -784,7 +786,7 @@ body {
   }
 
   .sidebar.collapsed .collapsed-block {
-    margin: 0 0 2rem 1rem;
+    margin: 0 0 4rem 1.5rem;
     background: none;
     border: none;
     box-shadow: none;
@@ -968,10 +970,12 @@ body {
   .story-display {
     padding: 15px;
     min-height: 45vh;
+    padding-right: 3px;
   }
 
   .entry-content {
-    font-size: 1.2rem;
+    font-size: 1.6rem;
+    padding: 0 1rem 0 0.5rem;
   }
 
   .quick-text {
