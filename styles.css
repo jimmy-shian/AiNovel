@@ -32,7 +32,7 @@ body {
 
 .app-container {
   display: flex;
-  height: 95dvh;
+  height: 100%;
   padding: 25px;
   gap: 25px;
   position: relative;
