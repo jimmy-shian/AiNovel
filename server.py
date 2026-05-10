@@ -43,7 +43,7 @@ async def chat_proxy(request: Request):
             headers=proxy_headers,
             json=body,
             stream=body.get("stream", False),
-            timeout=60
+            timeout=180
         )
         
         print(f"NVIDIA API Response Status: {response.status_code}")

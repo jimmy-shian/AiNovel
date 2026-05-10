@@ -2,7 +2,7 @@
 // 可調整的參數盡量集中在這裡，避免散落各處難以維護。
 const SETTINGS = {
   // 基於 Commit 次數更新的版本號：git rev-list --count HEAD
-  VERSION: "v1.2.5b",
+  VERSION: "v1.3.2b",
 
   // localStorage keys
   STORAGE_KEYS: {
@@ -36,8 +36,8 @@ const SETTINGS = {
     },
     // gpt-oss 系列：透過 system prompt 傳遞 reasoning hint
     gptOssReasoningHints: {
-      high: "\n\nReasoning: high",
-      low: "\n\nReasoning: low",
+      high: "\n\nReasoning: Medium",
+      low: "\n\nReasoning: Low",
     },
     // deepseek-v4-flash
     deepseek: {
@@ -45,7 +45,7 @@ const SETTINGS = {
       top_p: 0.95,
       max_tokens: 16384,
       thinking: true,
-      reasoning_effort: "high"
+      reasoning_effort: "Low"
     }
   },
 
@@ -1149,7 +1149,7 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
   }
 
   const { impact, suggested_options } = parseMeta(meta);
-  
+
   // 更新 Flags
   if (meta.flags) {
     state.game.story_flags = { ...(state.game.story_flags || {}), ...meta.flags };
@@ -1215,7 +1215,7 @@ function buildDirectorPrompt(action, isFirstMove) {
   const scene = state.world.scenes[g.scene];
 
   let content = `【世界規則】\n${(state.world.world_rules || []).join('\n')}\n主線謎團：${state.world.main_mystery || ''}`;
-  
+
   content += `\n\n【當前階段 (Arc)】
 目標：${g.current_arc?.goal || ''}
 威脅：${g.current_arc?.villain || ''}
