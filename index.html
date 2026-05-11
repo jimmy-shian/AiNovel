@@ -9,7 +9,7 @@
   <link rel="icon" href="img/favicon.png" type="image/png" />
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png" />
 
-  <title>天衍九州：虛數輪迴 | AI 交互式敘事引擎</title>
+  <title>天衍九州：逆天之界 | AI 交互式敘事引擎</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -44,7 +44,7 @@
     <!-- 主內容區 -->
     <main class="main-content">
       <header class="main-header">
-        <h1 id="scene-title">天衍九州：虛數輪迴</h1>
+        <h1 id="scene-title">天衍九州：逆天之界</h1>
       </header>
 
       <section class="story-display glass" id="story-container">
@@ -76,7 +76,7 @@
   <!-- 設置彈窗 -->
   <div id="settings-modal" class="modal hidden">
     <div class="modal-content glass">
-      <h2>系統配置</h2>
+      <h2>冥想配置</h2>
       <div class="input-group">
         <label>NVIDIA API Key</label>
         <input id="api-key" type="password" placeholder="輸入 API 金鑰..." />
@@ -85,20 +85,18 @@
         <label>運算模型</label>
         <div class="custom-select" id="model-select-container">
           <div class="select-trigger glass" id="model-select-trigger">
-            <span class="selected-value">deepseek-ai/deepseek-v4-flash</span>
+            <span class="selected-value">openai/gpt-oss-120b</span>
             <svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </div>
           <div class="select-options glass hidden" id="model-select-options">
-            <div class="option selected" data-value="deepseek-ai/deepseek-v4-flash">deepseek-ai/deepseek-v4-flash</div>
             <div class="option" data-value="openai/gpt-oss-120b">openai/gpt-oss-120b</div>
             <div class="option" data-value="openai/gpt-oss-20b">openai/gpt-oss-20b</div>
             <div class="option" data-value="qwen/qwen3.5-122b-a10b">qwen/qwen3.5-122b-a10b</div>
           </div>
           <select id="model-select" class="hidden">
-            <option value="deepseek-ai/deepseek-v4-flash" selected>deepseek-ai/deepseek-v4-flash</option>
             <option value="openai/gpt-oss-120b">openai/gpt-oss-120b</option>
             <option value="openai/gpt-oss-20b">openai/gpt-oss-20b</option>
             <option value="qwen/qwen3.5-122b-a10b">qwen/qwen3.5-122b-a10b</option>
@@ -107,7 +105,7 @@
       </div>
       <div class="input-group checkbox-group">
         <input id="proxy-toggle" type="checkbox" checked />
-        <label for="proxy-toggle">使用代理伺服器 (解決 CORS 問題)</label>
+        <label for="proxy-toggle">隱匿蹤跡 (解決跨域衝突)</label>
       </div>
       <div class="modal-footer">
         <button id="close-settings" class="primary-btn">儲存並返回</button>

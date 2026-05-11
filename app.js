@@ -1,45 +1,37 @@
 // ========== 全域參數（集中管理） ==========
-// 可調整的參數盡量集中在這裡，避免散落各處難以維護。
 const SETTINGS = {
-  // 基於 Commit 次數更新的版本號：git rev-list --count HEAD
-  VERSION: "v1.3.2b",
+  VERSION: "v1.4.0",
 
-  // localStorage keys
   STORAGE_KEYS: {
     apiKey: 'tianyan_api_key',
     useProxy: 'tianyan_use_proxy',
     gameSave: 'tianyan_game_save',
   },
 
-  // API Endpoints
   ENDPOINTS: {
     localProxy: 'http://127.0.0.1:4444/v1/chat/completions',
     remoteProxy: 'https://restless-hat-8ef5.jimmy910824.workers.dev/v1/chat/completions',
     direct: 'https://integrate.api.nvidia.com/v1/chat/completions',
   },
 
-  // LLM 參數（依模型可覆寫）
   LLM: {
     defaults: {
-      temperature: 1.0,
+      temperature: 0.5,
       top_p: 1,
       max_tokens: 131072,
       stream: false,
       response_format: { type: "json_object" },
     },
-    // qwen 系列（支援 thinking 開關）
     qwen: {
-      temperature: 0.60,
+      temperature: 0.6,
       top_p: 0.95,
       max_tokens: 16384,
       enable_thinking: true,
     },
-    // gpt-oss 系列：透過 system prompt 傳遞 reasoning hint
     gptOssReasoningHints: {
       high: "\n\nReasoning: Medium",
       low: "\n\nReasoning: Low",
     },
-    // deepseek-v4-flash
     deepseek: {
       temperature: 1.0,
       top_p: 0.95,
@@ -49,7 +41,6 @@ const SETTINGS = {
     }
   },
 
-  // UI/互動參數
   UI: {
     mobileWidthPx: 768,
     stickToBottomThresholdPx: 15,
@@ -58,54 +49,17 @@ const SETTINGS = {
     floatingImpactStaggerMs: 1000,
   },
 
-  // 遊戲/狀態相關
   GAME: {
-    historyLimit: 10,
+    historyLimit: 15,
   },
 };
 
-const DIRECTOR_PROMPT = `zh-TW 你是《天衍九州》的劇情導演。
-你的任務是根據當前場景設定與玩家行動，規劃本段劇情的「骨架」。
-請以「戲劇張力」與「劇情推進」為核心，避免單純的環境描寫。
-回傳標準 JSON：
-{
-  "scene_goal": "當前玩家的主要目標",
-  "dramatic_conflict": "阻礙目標的具體衝突",
-  "reveal": "本段劇情中揭露的新情報或變量",
-  "ending_hook": "結束時留下的懸念或情勢變化"
-}`;
+// 提示詞改由 world.json 載入，此處僅保留變數佔位
+let DIRECTOR_PROMPT = "";
+let NARRATIVE_PROMPT = "";
+let META_PROMPT = "";
 
-// ========== Prompt（雙階段） ==========
-// Phase 1: 故事生成（純敘事，無數值）
-const NARRATIVE_PROMPT = `zh-TW 你是《天衍九州》敘事引擎。
-你將收到導演規劃的「劇情骨架」，請根據此骨架撰寫小說內容。
-[風格] 東方玄幻+賽博龐克。將數據融入感官敘事，禁條列，禁重複世界觀術語。
-[限制]
-1. 以繁體中文撰寫，嚴格禁止出現任何數值（如 HP-10、+5）。
-3. 狀態連動：若 HP 或 SP 偏低 (<=20)，敘事必須顯現生命垂危、神識潰散的壓迫感；若系統威脅值高，敘事需加入電子干擾、天雷鎖定等外部危機感，並在敘事中暗示玩家應採取的補救措施。
-4. 歷史銜接：你將收到「前情提要（2次）」與「未來預兆（1次）」，你的敘事必須完美填補兩者之間的空隙，作為承上啟下的關鍵轉折。
-5. 必須針對『玩家當前行動』給出明確且深刻的因果回饋。`;
-
-const META_PROMPT = `zh-TW 你是《天衍九州》數據裁判。根據以下背景資訊與本輪故事，推演遊戲數值變化與後續選項。
-
-【背景資訊與狀態】
-{{CONTEXT}}
-
-【本輪故事敘事】
-「{{NARRATIVE}}」
-[格式] 僅回傳 JSON，並使用 繁體中文 zh-TW 撰寫：
-{
-  "hp": "當前值/上限", "sp": "當前值/上限", "threat": "+0", "scene": "null",
-  "new_ability": "能力=值/none", "upd_ability": "能力=增減/none",
-  "options": ["選項1", "選項2", "選項3"],
-  "flags": {"flag_name": value}
-}
-[限制]
-1. HP 與 SP 務必以「新數值/總上限」格式回傳（例如 80/100）。總上限固定為 100。
-2. 所有欄位為必填。若無變動，威脅值回傳 "+0"，場景回傳 "null"。
-3. 選項 3-5 個。若 HP/SP 極低，務必提供轉危為安的引導性選項。
-4. 數值範圍 -30 ~ +30 整數。注意系統中 HP 與 SP 範圍為 0~100。
-5. flags 用於記錄劇情進度與關係變動，請根據故事發展靈活更新。`;
+// 雙階段 Prompt 改由 world.json 動態載入
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const VERSION = SETTINGS.VERSION;
@@ -309,7 +263,7 @@ function appendThinking(timestamp = null) {
           <div class="ring"></div>
           <div class="ring"></div>
         </div>
-        <span class="thinking-text">正在演算因果</span>
+        <span class="thinking-text">正在推演天機</span>
         <div class="fb-dots">
           <span></span><span></span><span></span>
         </div>
@@ -325,6 +279,11 @@ function appendThinking(timestamp = null) {
 
 async function init() {
   state.world = await fetch('world.json').then((res) => res.json());
+
+  // 載入 Prompt 設定
+  DIRECTOR_PROMPT = state.world.prompts.director;
+  NARRATIVE_PROMPT = state.world.prompts.narrative;
+  META_PROMPT = state.world.prompts.meta;
 
   const savedKey = localStorage.getItem(SETTINGS.STORAGE_KEYS.apiKey);
   if (savedKey) selectors.apiKey.value = savedKey;
@@ -553,9 +512,9 @@ function render() {
 
   // 更新最後渲染的數值快照
   state.lastStats = {
-    '生命體徵': p.hp || 0,
-    '靈氣能級': p.sp || 0,
-    '系統威脅': p.threat || 0,
+    '生命': p.hp || 0,
+    '靈力': p.sp || 0,
+    '業力': p.threat || 0,
     ...(p.abilities || {})
   };
 }
@@ -575,33 +534,33 @@ function renderExpandedView(p, sceneTitle) {
     <div class="sidebar-header">
       <div class="logo">
         <span class="logo-text">TIANYAN</span>
-        <span class="logo-sub">OS ${VERSION}</span>
+        <span class="logo-sub">天機錄 ${VERSION}</span>
       </div>
     </div>
 
     <div class="stats-group">
-      ${renderStatItemHTML('生命體徵', p.hp || 0, '#10b981')}
-      ${renderStatItemHTML('靈氣能級', p.sp || 0, '#3b82f6')}
-      ${renderStatItemHTML('系統威脅', p.threat || 0, '#ef4444')}
+      ${renderStatItemHTML('生命', p.hp || 0, '#ef4444')}
+      ${renderStatItemHTML('靈力', p.sp || 0, '#3b82f6')}
+      ${renderStatItemHTML('業力', p.threat || 0, '#a855f7')}
       ${p.abilities ? Object.entries(p.abilities).map(([name, value]) => renderStatItemHTML(name, value, '#E2B87E')).join('') : ''}
     </div>
 
     <div class="action-menu">
       <button id="btn-settings-exp" class="icon-btn">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-        <span>系統設置</span>
+        <span>冥想配置</span>
       </button>
       <button id="export-save-exp" class="icon-btn">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-        <span>匯出數據</span>
+        <span>匯出命錄</span>
       </button>
       <button id="import-save-exp" class="icon-btn">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-        <span>讀取序列</span>
+        <span>讀取因果</span>
       </button>
       <button id="clear-game-exp" class="icon-btn danger">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-        <span>格式化</span>
+        <span>重塑乾坤</span>
       </button>
     </div>
 
@@ -614,9 +573,9 @@ function renderExpandedView(p, sceneTitle) {
 
 function renderCollapsedView(p) {
   const stats = [
-    { label: 'HP', value: p.hp || 0, color: '#10b981' },
-    { label: 'SP', value: p.sp || 0, color: '#3b82f6' },
-    { label: '威脅', value: p.threat || 0, color: '#ef4444' },
+    { label: '生命', value: p.hp || 0, color: '#ef4444' },
+    { label: '靈力', value: p.sp || 0, color: '#3b82f6' },
+    { label: '業力', value: p.threat || 0, color: '#a855f7' },
     ...(p.abilities ? Object.entries(p.abilities).map(([k, v]) => ({ label: k.slice(0, 2), value: v, color: '#E2B87E' })) : [])
   ];
 
@@ -651,10 +610,10 @@ function renderCollapsedView(p) {
 
       <!-- 收合時的操作按鈕 (4個按鈕) -->
       <div class="collapsed-actions">
-        <button id="btn-settings-col" class="circle-btn" title="系統設置"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
-        <button id="export-save-col" class="circle-btn" title="匯出數據"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></button>
-        <button id="import-save-col" class="circle-btn" title="讀取序列"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
-        <button id="clear-game-col" class="circle-btn danger" title="格式化"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
+        <button id="btn-settings-col" class="circle-btn" title="冥想配置"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+        <button id="export-save-col" class="circle-btn" title="匯出命錄"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></button>
+        <button id="import-save-col" class="circle-btn" title="讀取因果"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
+        <button id="clear-game-col" class="circle-btn danger" title="重塑乾坤"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
       </div>
     </div>
   `;
@@ -751,8 +710,8 @@ function attachSidebarListeners() {
   const openExport = () => {
     console.log('Opening export modal');
     currentSaveMode = 'export';
-    selectors.saveModalTitle.textContent = '匯出數據序列';
-    selectors.btnConfirmSave.textContent = '複製到剪貼簿';
+    selectors.saveModalTitle.textContent = '匯出命錄卷軸';
+    selectors.btnConfirmSave.textContent = '烙印至神識 (複製)';
     const payload = btoa(unescape(encodeURIComponent(JSON.stringify(state.game))));
     selectors.saveCode.value = payload;
     const modal = document.getElementById('save-modal');
@@ -761,14 +720,14 @@ function attachSidebarListeners() {
   const openImport = () => {
     console.log('Opening import modal');
     currentSaveMode = 'import';
-    selectors.saveModalTitle.textContent = '匯入數據序列';
-    selectors.btnConfirmSave.textContent = '執行解析';
+    selectors.saveModalTitle.textContent = '讀取因果命錄';
+    selectors.btnConfirmSave.textContent = '執行推演';
     selectors.saveCode.value = '';
     const modal = document.getElementById('save-modal');
     if (modal) modal.classList.remove('hidden');
   };
   const runClear = () => {
-    if (confirm('確定要格式化所有數據嗎？')) clearGame();
+    if (confirm('確定要重塑乾坤（清空所有存檔）嗎？')) clearGame();
   };
 
   ['exp', 'col'].forEach(suffix => {
@@ -1143,12 +1102,17 @@ async function handleAction(e, isFirstMove = false, retryAction = null) {
     await state.currentTypewriter.wait();
   }
 
-  // 確保最終內容完全渲染且格式正確
   if (narrative) {
     contentEl.innerHTML = marked.parse(formatNarrative(narrative));
   }
 
   const { impact, suggested_options } = parseMeta(meta);
+
+  // 處理「未完待續」邏輯
+  const isContinuation = meta && meta.has_more;
+  if (isContinuation) {
+    suggested_options.unshift("繼續敘事...");
+  }
 
   // 更新 Flags
   if (meta.flags) {
@@ -1235,12 +1199,17 @@ ${JSON.stringify(g.story_flags || {})}`;
   }
 
   content += `\n\n【玩家狀態】
-HP ${g.player.hp}/100, SP ${g.player.sp}/100, 威脅 ${g.player.threat}`;
+氣血 ${g.player.hp}/100, 靈力 ${g.player.sp}/100, 魔障 ${g.player.threat}`;
 
   content += `\n\n【前情提要】
 ${g.history?.slice(-2).map(h => `- 行動: ${h.action}\n- 結果: ${h.result?.narrative.slice(0, 100)}...`).join('\n') || '無'}`;
 
-  content += `\n\n【玩家當前行動】\n${isFirstMove ? '遊戲開始' : action}`;
+  if (action === "繼續敘事...") {
+    content += `\n\n【當前任務】
+故事在精彩處截斷了，請繼續接續上文進行敘事，保持張力並給出本段的小結或新的轉折。`;
+  }
+
+  content += `\n\n【玩家當前行動】\n${isFirstMove ? '正式開啟這場逆天之旅的第一幕。' : (action === "繼續敘事..." ? "（接續上文）" : action)}`;
 
   return content;
 }
@@ -1339,15 +1308,15 @@ function applyImpact(impact) {
 
   if (impact.hp !== undefined && impact.hp !== 0) {
     p.hp = Math.min(100, Math.max(0, p.hp + impact.hp));
-    changes.push(['生命體徵', impact.hp]);
+    changes.push(['生命', impact.hp]);
   }
   if (impact.sp !== undefined && impact.sp !== 0) {
     p.sp = Math.min(100, Math.max(0, p.sp + impact.sp));
-    changes.push(['靈氣能級', impact.sp]);
+    changes.push(['靈力', impact.sp]);
   }
   if (impact.threat !== undefined && impact.threat !== 0) {
     p.threat = Math.max(0, p.threat + impact.threat);
-    changes.push(['系統威脅', impact.threat]);
+    changes.push(['業力', impact.threat]);
   }
 
   if (impact.new_abilities) {
