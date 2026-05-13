@@ -223,7 +223,21 @@ function extractNarrative(text) {
   if (!text.trim()) return null;
   try {
     const data = JSON.parse(text);
-    return data.narrative ? cleanText(data.narrative) : null;
+    // 檢測空或無效的 JSON 物件
+    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
+      console.warn('[extractNarrative] 模型返回空 JSON 物件');
+      return null;
+    }
+    // 檢測 narrative 欄位是否存在且有內容
+    if (data.narrative === undefined || data.narrative === null) {
+      console.warn('[extractNarrative] JSON 中缺少 narrative 欄位');
+      return null;
+    }
+    if (typeof data.narrative !== 'string' || !data.narrative.trim()) {
+      console.warn('[extractNarrative] narrative 欄位為空');
+      return null;
+    }
+    return cleanText(data.narrative);
   } catch (e) {
     const match = text.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)/);
     if (match) {
