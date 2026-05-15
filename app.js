@@ -177,14 +177,34 @@ function parseMeta(meta) {
   const parsePairs = (raw) => {
     const out = {};
     if (!raw || /^(none|無|null|nan)$/i.test(String(raw).trim())) return out;
-    if (typeof raw === 'object') return raw; // 如果已經是物件就直接回傳
+    if (typeof raw === 'object') return raw; 
     const parts = String(raw).split(/[;；]/).map(s => s.trim()).filter(Boolean);
     for (const part of parts) {
       const eq = part.indexOf('=');
       if (eq === -1) continue;
       const k = part.slice(0, eq).trim();
-      const v = Number(part.slice(eq + 1).trim());
-      if (k && Number.isFinite(v)) out[k] = v;
+      const vStr = part.slice(eq + 1).trim();
+      
+      if (vStr.includes('/')) {
+        const segments = vStr.split('/').map(s => s.trim());
+        if (segments.length === 3) {
+          out[k] = { 
+            val: Number(segments[0]), 
+            min: Number(segments[1]), 
+            max: Number(segments[2]) 
+          };
+        } else if (segments.length === 2) {
+          // 支援 增減值/上限 格式，預設下限為 0
+          out[k] = {
+            val: Number(segments[0]),
+            min: 0,
+            max: Number(segments[1])
+          };
+        }
+      } else {
+        const v = Number(vStr);
+        if (k && Number.isFinite(v)) out[k] = v;
+      }
     }
     return out;
   };
@@ -529,7 +549,7 @@ function render() {
     '生命': p.hp || 0,
     '靈力': p.sp || 0,
     '業力': p.threat || 0,
-    ...(p.abilities || {})
+    ...(p.abilities ? Object.fromEntries(Object.entries(p.abilities).map(([n, v]) => [n, typeof v === 'object' ? v.val : v])) : {})
   };
 }
 
@@ -590,7 +610,11 @@ function renderCollapsedView(p) {
     { label: '生命', value: p.hp || 0, color: '#ef4444' },
     { label: '靈力', value: p.sp || 0, color: '#3b82f6' },
     { label: '業力', value: p.threat || 0, color: '#a855f7' },
-    ...(p.abilities ? Object.entries(p.abilities).map(([k, v]) => ({ label: k.slice(0, 2), value: v, color: '#E2B87E' })) : [])
+    ...(p.abilities ? Object.entries(p.abilities).map(([k, v]) => ({ 
+      label: k.slice(0, 2), 
+      value: typeof v === 'object' ? `${v.val}/${v.min}/${v.max}` : v, 
+      color: '#E2B87E' 
+    })) : [])
   ];
 
   selectors.sidebarCollapsed.innerHTML = `
@@ -665,9 +689,8 @@ function createOdometerHTML(value, animate = true) {
   return `
     <div class="odometer">
       ${str.split('').map(char => {
-    if (isNaN(parseInt(char))) return `<span class="odo-static">${char}</span>`;
+    if (isNaN(parseInt(char)) || char === ' ') return `<span class="odo-static">${char}</span>`;
     const digit = parseInt(char);
-    // 如果不開起動畫，直接設定最終位置
     const initialTransform = animate ? '0em' : `-${digit * 1.5}em`;
     const animateClass = animate ? 'animate-me' : '';
     return `
@@ -684,12 +707,24 @@ function createOdometerHTML(value, animate = true) {
 
 function renderStatItemHTML(label, value, color) {
   const safeLabel = btoa(unescape(encodeURIComponent(label))).replace(/=/g, '');
-  const hasChanged = state.lastStats[label] !== value;
+  
+  let displayValue = value;
+  let progress = 0;
+  let hasChanged = false;
 
-  const odoHTML = createOdometerHTML(label === '解析度' ? `${value}%` : value, hasChanged);
+  if (typeof value === 'object' && value !== null) {
+    displayValue = `${value.val}/${value.min}/${value.max}`;
+    progress = value.max > value.min ? ((value.val - value.min) / (value.max - value.min)) * 100 : 0;
+    hasChanged = state.lastStats[label] !== value.val;
+  } else {
+    displayValue = label === '解析度' ? `${value}%` : value;
+    progress = Math.min(100, value);
+    hasChanged = state.lastStats[label] !== value;
+  }
+
+  const odoHTML = createOdometerHTML(displayValue, hasChanged);
 
   if (hasChanged) {
-    // 僅在變動時觸發動畫
     setTimeout(() => {
       const strips = document.querySelectorAll(`#stat-item-${safeLabel} .odo-strip.animate-me`);
       strips.forEach(strip => {
@@ -704,7 +739,7 @@ function renderStatItemHTML(label, value, color) {
       <span class="label">${label}</span>
       <span class="value">${odoHTML}</span>
       <div class="value-bar-container">
-        <div class="value-bar" id="bar-${safeLabel}" style="width: ${Math.min(100, value)}%; background: ${color}; box-shadow: 0 0 10px ${color}66;"></div>
+        <div class="value-bar" id="bar-${safeLabel}" style="width: ${Math.max(0, Math.min(100, progress))}%; background: ${color}; box-shadow: 0 0 10px ${color}66;"></div>
       </div>
     </div>
   `;
@@ -1213,7 +1248,14 @@ ${JSON.stringify(g.story_flags || {})}`;
   }
 
   content += `\n\n【玩家狀態】
-氣血 ${g.player.hp}/100, 靈力 ${g.player.sp}/100, 魔障 ${g.player.threat}`;
+  氣血 ${g.player.hp}/100, 靈力 ${g.player.sp}/100, 業力 ${g.player.threat}`;
+  
+  if (g.player.abilities && Object.keys(g.player.abilities).length > 0) {
+    content += `\n能力：\n${Object.entries(g.player.abilities).map(([n, v]) => {
+      if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max})`;
+      return `- ${n}: ${v}`;
+    }).join('\n')}`;
+  }
 
   content += `\n\n【前情提要】
 ${g.history?.slice(-2).map(h => `- 行動: ${h.action}\n- 結果: ${h.result?.narrative.slice(0, 100)}...`).join('\n') || '無'}`;
@@ -1256,7 +1298,17 @@ function buildMetaPromptContext(action) {
 
   let content = `【當前情勢】
 場景：${scene?.title || g.scene}
-行動：${action}`;
+行動：${action}
+
+【玩家目前狀態】
+氣血: ${g.player.hp}/100
+靈力: ${g.player.sp}/100
+業力: ${g.player.threat}
+能力:
+${Object.entries(g.player.abilities || {}).map(([n, v]) => {
+  if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max})`;
+  return `- ${n}: ${v}`;
+}).join('\n')}`;
 
   if (scene?.choices?.length > 0) {
     content += `\n場景預設選擇參考：\n- ${scene.choices.join('\n- ')}`;
@@ -1336,15 +1388,31 @@ function applyImpact(impact) {
   if (impact.new_abilities) {
     Object.entries(impact.new_abilities).forEach(([n, v]) => {
       p.abilities[n] = v;
-      changes.push([n, v]);
+      changes.push([n, typeof v === 'object' ? v.val : v]);
     });
   }
 
   if (impact.update_abilities) {
     Object.entries(impact.update_abilities).forEach(([n, v]) => {
       if (p.abilities[n] !== undefined) {
-        p.abilities[n] = Math.min(100, Math.max(0, p.abilities[n] + v));
-        changes.push([n, v]);
+        if (typeof p.abilities[n] === 'object') {
+          // 如果傳入的是物件，直接更新或部分更新
+          if (typeof v === 'object') {
+             p.abilities[n].val = Math.min(v.max ?? p.abilities[n].max, Math.max(v.min ?? p.abilities[n].min, p.abilities[n].val + v.val));
+             if (v.min !== undefined) p.abilities[n].min = v.min;
+             if (v.max !== undefined) p.abilities[n].max = v.max;
+             changes.push([n, v.val]);
+          } else {
+             // 僅更新數值
+             const oldVal = p.abilities[n].val;
+             p.abilities[n].val = Math.min(p.abilities[n].max, Math.max(p.abilities[n].min, p.abilities[n].val + v));
+             changes.push([n, p.abilities[n].val - oldVal]);
+          }
+        } else {
+          // 傳統數值更新
+          p.abilities[n] = Math.min(100, Math.max(0, p.abilities[n] + v));
+          changes.push([n, v]);
+        }
       }
     });
   }
@@ -1357,9 +1425,13 @@ function applyImpact(impact) {
       state.game.visitedScenes.push(impact.scene);
       const totalScenes = Object.keys(state.world.scenes).length;
       const progress = Math.round((state.game.visitedScenes.length / totalScenes) * 100);
-      const oldResolution = state.game.player.abilities['天眼'] || 0;
+      const oldResolution = (typeof state.game.player.abilities['天眼'] === 'object') ? state.game.player.abilities['天眼'].val : (state.game.player.abilities['天眼'] || 0);
       if (progress > oldResolution) {
-        state.game.player.abilities['天眼'] = progress;
+        if (typeof state.game.player.abilities['天眼'] === 'object') {
+          state.game.player.abilities['天眼'].val = progress;
+        } else {
+          state.game.player.abilities['天眼'] = { val: progress, min: 0, max: 100 };
+        }
         changes.push(['天眼', progress - oldResolution]);
       }
     }
@@ -1367,10 +1439,14 @@ function applyImpact(impact) {
 
   // 自動更新悟性: 根據歷史長度微幅增加，代表修仙路上的領悟
   const computeBonus = Math.floor(state.game.history.length / 5);
-  const currentCompute = state.game.player.abilities['悟性'] || 0;
+  const currentCompute = (typeof state.game.player.abilities['悟性'] === 'object') ? state.game.player.abilities['悟性'].val : (state.game.player.abilities['悟性'] || 0);
   const newCompute = 10 + computeBonus; // 基礎 10 + 每 5 次行動 +1
   if (newCompute > currentCompute) {
-    state.game.player.abilities['悟性'] = newCompute;
+    if (typeof state.game.player.abilities['悟性'] === 'object') {
+      state.game.player.abilities['悟性'].val = newCompute;
+    } else {
+      state.game.player.abilities['悟性'] = { val: newCompute, min: 0, max: 100 };
+    }
     changes.push(['悟性', newCompute - currentCompute]);
   }
 
