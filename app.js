@@ -177,21 +177,21 @@ function parseMeta(meta) {
   const parsePairs = (raw) => {
     const out = {};
     if (!raw || /^(none|無|null|nan)$/i.test(String(raw).trim())) return out;
-    if (typeof raw === 'object') return raw; 
+    if (typeof raw === 'object') return raw;
     const parts = String(raw).split(/[;；]/).map(s => s.trim()).filter(Boolean);
     for (const part of parts) {
       const eq = part.indexOf('=');
       if (eq === -1) continue;
       const k = part.slice(0, eq).trim();
       const vStr = part.slice(eq + 1).trim();
-      
+
       if (vStr.includes('/')) {
         const segments = vStr.split('/').map(s => s.trim());
         if (segments.length === 3) {
-          out[k] = { 
-            val: Number(segments[0]), 
-            min: Number(segments[1]), 
-            max: Number(segments[2]) 
+          out[k] = {
+            val: Number(segments[0]),
+            min: Number(segments[1]),
+            max: Number(segments[2])
           };
         } else if (segments.length === 2) {
           // 支援 增減值/上限 格式，預設下限為 0
@@ -610,10 +610,10 @@ function renderCollapsedView(p) {
     { label: '生命', value: p.hp || 0, color: '#ef4444' },
     { label: '靈力', value: p.sp || 0, color: '#3b82f6' },
     { label: '業力', value: p.threat || 0, color: '#a855f7' },
-    ...(p.abilities ? Object.entries(p.abilities).map(([k, v]) => ({ 
-      label: k.slice(0, 2), 
-      value: typeof v === 'object' ? `${v.val}/${v.min}/${v.max}` : v, 
-      color: '#E2B87E' 
+    ...(p.abilities ? Object.entries(p.abilities).map(([k, v]) => ({
+      label: k.slice(0, 2),
+      value: typeof v === 'object' ? `${v.val}/${v.max}` : v,
+      color: '#E2B87E'
     })) : [])
   ];
 
@@ -707,13 +707,13 @@ function createOdometerHTML(value, animate = true) {
 
 function renderStatItemHTML(label, value, color) {
   const safeLabel = btoa(unescape(encodeURIComponent(label))).replace(/=/g, '');
-  
+
   let displayValue = value;
   let progress = 0;
   let hasChanged = false;
 
   if (typeof value === 'object' && value !== null) {
-    displayValue = `${value.val}/${value.min}/${value.max}`;
+    displayValue = `${value.val}/${value.max}`;
     progress = value.max > value.min ? ((value.val - value.min) / (value.max - value.min)) * 100 : 0;
     hasChanged = state.lastStats[label] !== value.val;
   } else {
@@ -737,7 +737,7 @@ function renderStatItemHTML(label, value, color) {
   return `
     <div class="stat-item" id="stat-item-${safeLabel}">
       <span class="label">${label}</span>
-      <span class="value">${odoHTML}</span>
+      <span class="value ${String(displayValue).length > 5 ? 'long' : ''}">${odoHTML}</span>
       <div class="value-bar-container">
         <div class="value-bar" id="bar-${safeLabel}" style="width: ${Math.max(0, Math.min(100, progress))}%; background: ${color}; box-shadow: 0 0 10px ${color}66;"></div>
       </div>
@@ -1249,7 +1249,7 @@ ${JSON.stringify(g.story_flags || {})}`;
 
   content += `\n\n【玩家狀態】
   氣血 ${g.player.hp}/100, 靈力 ${g.player.sp}/100, 業力 ${g.player.threat}`;
-  
+
   if (g.player.abilities && Object.keys(g.player.abilities).length > 0) {
     content += `\n能力：\n${Object.entries(g.player.abilities).map(([n, v]) => {
       if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max})`;
@@ -1306,9 +1306,9 @@ function buildMetaPromptContext(action) {
 業力: ${g.player.threat}
 能力:
 ${Object.entries(g.player.abilities || {}).map(([n, v]) => {
-  if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max})`;
-  return `- ${n}: ${v}`;
-}).join('\n')}`;
+    if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max})`;
+    return `- ${n}: ${v}`;
+  }).join('\n')}`;
 
   if (scene?.choices?.length > 0) {
     content += `\n場景預設選擇參考：\n- ${scene.choices.join('\n- ')}`;
@@ -1398,15 +1398,15 @@ function applyImpact(impact) {
         if (typeof p.abilities[n] === 'object') {
           // 如果傳入的是物件，直接更新或部分更新
           if (typeof v === 'object') {
-             p.abilities[n].val = Math.min(v.max ?? p.abilities[n].max, Math.max(v.min ?? p.abilities[n].min, p.abilities[n].val + v.val));
-             if (v.min !== undefined) p.abilities[n].min = v.min;
-             if (v.max !== undefined) p.abilities[n].max = v.max;
-             changes.push([n, v.val]);
+            p.abilities[n].val = Math.min(v.max ?? p.abilities[n].max, Math.max(v.min ?? p.abilities[n].min, p.abilities[n].val + v.val));
+            if (v.min !== undefined) p.abilities[n].min = v.min;
+            if (v.max !== undefined) p.abilities[n].max = v.max;
+            changes.push([n, v.val]);
           } else {
-             // 僅更新數值
-             const oldVal = p.abilities[n].val;
-             p.abilities[n].val = Math.min(p.abilities[n].max, Math.max(p.abilities[n].min, p.abilities[n].val + v));
-             changes.push([n, p.abilities[n].val - oldVal]);
+            // 僅更新數值
+            const oldVal = p.abilities[n].val;
+            p.abilities[n].val = Math.min(p.abilities[n].max, Math.max(p.abilities[n].min, p.abilities[n].val + v));
+            changes.push([n, p.abilities[n].val - oldVal]);
           }
         } else {
           // 傳統數值更新

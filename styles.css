@@ -1560,6 +1560,7 @@ select.hidden {
   width: 0.65em;
   height: 1.5em;
   position: relative;
+  flex-shrink: 0;
 }
 
 .odo-strip {
@@ -1580,6 +1581,7 @@ select.hidden {
   display: inline-block;
   height: 1.5em;
   font-family: var(--font-heading);
+  flex-shrink: 0;
 }
 
 .stat-item .value {
@@ -1588,7 +1590,11 @@ select.hidden {
   justify-content: center;
   height: 1.5em;
   overflow: visible;
-  /* Odometer handles its own clipping */
+  transition: font-size 0.3s ease;
+}
+
+.stat-item .value.long {
+  font-size: 0.8rem;
 }
 
 .stat-item.pulse {
