@@ -77,6 +77,8 @@ window.CONFIG = {
 window.state = {
   world: null,
   game: null,
+  allStories: null,
+  currentStoryId: "",
   historyLimit: window.SETTINGS.GAME.historyLimit,
   isThinking: false,
   currentTypewriter: null,

@@ -2,7 +2,16 @@
 
 async function init() {
   // 載入世界設定檔
-  window.state.world = await fetch('world.json').then((res) => res.json());
+  const data = await fetch('world.json').then((res) => res.json());
+  window.state.allStories = data.stories;
+
+  // 決定當前故事 ID
+  let storyId = localStorage.getItem('tianyan_current_story_id');
+  if (!storyId || !window.state.allStories[storyId]) {
+    storyId = Object.keys(window.state.allStories)[0];
+  }
+  window.state.currentStoryId = storyId;
+  window.state.world = window.state.allStories[storyId];
 
   // 載入與初始化 AI 提示詞
   window.DIRECTOR_PROMPT = window.state.world.prompts.director;

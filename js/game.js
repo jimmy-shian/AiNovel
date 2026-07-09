@@ -341,7 +341,8 @@ window.importSave = function() {
 };
 
 window.clearGame = function() {
-  localStorage.removeItem(window.SETTINGS.STORAGE_KEYS.gameSave);
+  const key = window.getGameSaveKey();
+  localStorage.removeItem(key);
   location.reload();
 };
 
@@ -409,5 +410,56 @@ window.showRetryError = function(msg, isFirst, act, el, entry) {
       entry.remove();
       window.handleAction(null, isFirst, act);
     };
+  }
+};
+
+window.switchStory = function(storyId) {
+  if (!window.state.allStories || !window.state.allStories[storyId]) {
+    console.error("[switchStory] Story ID not found:", storyId);
+    return;
+  }
+
+  // 1. 設定新故事 ID 與儲存到 localStorage
+  window.state.currentStoryId = storyId;
+  localStorage.setItem('tianyan_current_story_id', storyId);
+  window.state.world = window.state.allStories[storyId];
+
+  // 2. 更新 AI 提示詞
+  window.DIRECTOR_PROMPT = window.state.world.prompts.director;
+  window.NARRATIVE_PROMPT = window.state.world.prompts.narrative;
+  window.META_PROMPT = window.state.world.prompts.meta;
+
+  // 3. 讀取存檔
+  const saved = window.loadFromStorage();
+  window.selectors.storyLog.innerHTML = '';
+
+  if (saved) {
+    window.state.game = saved;
+    if (window.state.game.history.length === 0) {
+      window.appendStory('系統：初始化完成。請在設置中輸入 API Key 並儲存以開始故事。', 'system');
+    } else {
+      window.state.game.history.forEach(entry => {
+        if (entry.action) window.appendStory(entry.action, 'action', entry.timestamp);
+        if (entry.result) window.appendStory(entry.result.narrative, entry.result.success !== false ? 'narrative' : 'system', entry.timestamp);
+      });
+    }
+  } else {
+    window.state.game = JSON.parse(JSON.stringify(window.state.world.startingState));
+    window.appendStory('系統：等待鏈接中... 請在設置中輸入 API Key 並點擊儲存。', 'system');
+  }
+
+  // 4. 重置打字機與狀態
+  if (window.state.currentTypewriter) {
+    window.state.currentTypewriter.stop();
+  }
+  window.state.lastStats = {};
+  
+  // 5. 重新渲染畫面
+  window.render();
+
+  // 6. 如果有 API Key 且為全新開局，自動觸發首輪
+  const apiKey = window.selectors.apiKey.value.trim();
+  if (apiKey && window.state.game.history.length === 0) {
+    window.handleAction(null, true);
   }
 };

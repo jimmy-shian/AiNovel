@@ -35,11 +35,21 @@ window.renderSidebar = function() {
 };
 
 window.renderExpandedView = function(p, sceneTitle) {
+  const storyOptions = Object.entries(window.state.allStories || {}).map(([id, story]) => {
+    return `<option value="${id}" ${id === window.state.currentStoryId ? 'selected' : ''}>${story.title}</option>`;
+  }).join('');
+
   window.selectors.sidebarExpanded.innerHTML = `
     <div class="sidebar-header">
       <div class="logo">
         <span class="logo-text">TIANYAN</span>
         <span class="logo-sub">天機錄 ${window.SETTINGS.VERSION}</span>
+      </div>
+      <div class="story-selector-container">
+        <label for="story-select">切換因果</label>
+        <select id="story-select" class="story-select-dropdown glass">
+          ${storyOptions}
+        </select>
       </div>
     </div>
 
@@ -385,6 +395,13 @@ window.attachSidebarListeners = function() {
       if (actions) {
         actions.classList.toggle('active');
       }
+    });
+  }
+
+  const storySelect = document.getElementById('story-select');
+  if (storySelect) {
+    storySelect.addEventListener('change', (e) => {
+      window.switchStory(e.target.value);
     });
   }
 };

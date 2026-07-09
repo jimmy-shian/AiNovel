@@ -232,13 +232,19 @@ window.createTypewriter = function(el, scrollContainer) {
   };
 };
 
+window.getGameSaveKey = function() {
+  return `${window.SETTINGS.STORAGE_KEYS.gameSave}_${window.state.currentStoryId || 'default'}`;
+};
+
 window.loadFromStorage = function() {
   try {
-    const raw = localStorage.getItem(window.SETTINGS.STORAGE_KEYS.gameSave);
+    const key = window.getGameSaveKey();
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch (e) { return null; }
 };
 
 window.saveToStorage = function() {
-  localStorage.setItem(window.SETTINGS.STORAGE_KEYS.gameSave, JSON.stringify(window.state.game));
+  const key = window.getGameSaveKey();
+  localStorage.setItem(key, JSON.stringify(window.state.game));
 };

@@ -139,14 +139,18 @@ def run_all_tests():
     with open(world_path, 'r', encoding='utf-8') as f:
         world_data = json.load(f)
         
-    assert 'title' in world_data, "缺少 title 欄位"
-    assert 'prompts' in world_data, "缺少 prompts 欄位"
-    assert 'scenes' in world_data, "缺少 scenes 欄位"
+    assert 'stories' in world_data, "缺少 stories 欄位"
     
-    prompts = world_data['prompts']
-    assert 'director' in prompts, "缺少 director 提示詞"
-    assert 'narrative' in prompts, "缺少 narrative 提示詞"
-    assert 'meta' in prompts, "缺少 meta 提示詞"
+    for story_id, story_data in world_data['stories'].items():
+        print(f"  - 驗證故事: {story_id} ({story_data.get('title', '無標題')})")
+        assert 'title' in story_data, f"故事 {story_id} 缺少 title 欄位"
+        assert 'prompts' in story_data, f"故事 {story_id} 缺少 prompts 欄位"
+        assert 'scenes' in story_data, f"故事 {story_id} 缺少 scenes 欄位"
+        
+        prompts = story_data['prompts']
+        assert 'director' in prompts, f"故事 {story_id} 缺少 director 提示詞"
+        assert 'narrative' in prompts, f"故事 {story_id} 缺少 narrative 提示詞"
+        assert 'meta' in prompts, f"故事 {story_id} 缺少 meta 提示詞"
     
     print("=> 測試 3 通過！")
     
