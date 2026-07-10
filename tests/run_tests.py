@@ -3,11 +3,13 @@ import json
 import os
 import sys
 
-# 確保輸出支援 UTF-8，防止 Windows 終端機亂碼
 if sys.platform.startswith('win'):
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    if getattr(sys.stderr, 'encoding', '').lower() != 'utf-8':
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 
 def parse_delta_number(raw_str, current):
     """
@@ -94,6 +96,14 @@ def parse_pairs(raw_str):
 def run_all_tests():
     print("====== 開始執行天衍九州核心演算法測試 ======")
     
+    # 進行自動化故事編譯 (由 stories/* 合併為 world.json)
+    print("[編譯] 正在從 stories/ 目錄編譯 world.json...")
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if parent_dir not in sys.path:
+        sys.path.append(parent_dir)
+    from build_world import build
+    build()
+    
     # Test 1: parse_delta_number
     print("[測試 1] 測試 parseDeltaNumber (數值變動智慧解析)...")
     
@@ -141,9 +151,18 @@ def run_all_tests():
         
     assert 'stories' in world_data, "缺少 stories 欄位"
     
-    for story_id, story_data in world_data['stories'].items():
-        print(f"  - 驗證故事: {story_id} ({story_data.get('title', '無標題')})")
-        assert 'title' in story_data, f"故事 {story_id} 缺少 title 欄位"
+    for story_id, story_meta in world_data['stories'].items():
+        print(f"  - 驗證故事索引: {story_id} ({story_meta.get('title', '無標題')})")
+        assert 'title' in story_meta, f"故事 {story_id} 缺少 title 欄位"
+        assert 'file' in story_meta, f"故事 {story_id} 缺少 file 欄位"
+        
+        # 讀取實際的故事檔案進行驗證
+        story_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), story_meta['file'])
+        assert os.path.exists(story_file_path), f"找不到故事檔案: {story_file_path}"
+        
+        with open(story_file_path, 'r', encoding='utf-8') as sf:
+            story_data = json.load(sf)
+            
         assert 'prompts' in story_data, f"故事 {story_id} 缺少 prompts 欄位"
         assert 'scenes' in story_data, f"故事 {story_id} 缺少 scenes 欄位"
         
