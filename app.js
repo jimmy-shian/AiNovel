@@ -11,7 +11,15 @@ async function init() {
     storyId = Object.keys(window.state.allStories)[0];
   }
   window.state.currentStoryId = storyId;
-  window.state.world = window.state.allStories[storyId];
+
+  // 載入當前選定故事的具體 JSON
+  const storyMeta = window.state.allStories[storyId];
+  if (!storyMeta) {
+    console.error("No story meta found for storyId:", storyId);
+    return;
+  }
+  const storyData = await fetch(storyMeta.file).then((res) => res.json());
+  window.state.world = storyData;
 
   // 載入與初始化 AI 提示詞
   window.DIRECTOR_PROMPT = window.state.world.prompts.director;

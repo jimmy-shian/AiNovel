@@ -413,7 +413,7 @@ window.showRetryError = function(msg, isFirst, act, el, entry) {
   }
 };
 
-window.switchStory = function(storyId) {
+window.switchStory = async function(storyId) {
   if (!window.state.allStories || !window.state.allStories[storyId]) {
     console.error("[switchStory] Story ID not found:", storyId);
     return;
@@ -422,7 +422,16 @@ window.switchStory = function(storyId) {
   // 1. 設定新故事 ID 與儲存到 localStorage
   window.state.currentStoryId = storyId;
   localStorage.setItem('tianyan_current_story_id', storyId);
-  window.state.world = window.state.allStories[storyId];
+
+  try {
+    const storyMeta = window.state.allStories[storyId];
+    const storyData = await fetch(storyMeta.file).then((res) => res.json());
+    window.state.world = storyData;
+  } catch (err) {
+    console.error("[switchStory] Failed to load story data:", err);
+    alert("無法載入故事內容，請檢查檔案是否存在。");
+    return;
+  }
 
   // 2. 更新 AI 提示詞
   window.DIRECTOR_PROMPT = window.state.world.prompts.director;
