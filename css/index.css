@@ -1209,27 +1209,23 @@
   opacity: 0.8;
 }
 
-.story-select-dropdown {
-  width: 100%;
+/* 故事客製化選單在側邊欄中的樣式調整 */
+.story-custom-select .select-trigger {
   padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(226, 184, 126, 0.2);
-  border-radius: 4px;
-  color: #fff;
-  font-family: inherit;
   font-size: 0.85rem;
-  outline: none;
-  cursor: pointer;
-  transition: all 0.3s ease;
+  border-radius: 8px;
 }
 
-.story-select-dropdown:hover, .story-select-dropdown:focus {
-  border-color: rgba(226, 184, 126, 0.5);
-  background: rgba(0, 0, 0, 0.6);
-  box-shadow: 0 0 10px rgba(226, 184, 126, 0.15);
+.story-custom-select .select-trigger .chevron {
+  width: 14px;
+  height: 14px;
 }
 
-.story-select-dropdown option {
-  background: #111;
-  color: #fff;
+.story-custom-select .select-options {
+  max-height: 160px;
+}
+
+.story-custom-select .option {
+  padding: 8px 12px;
+  font-size: 0.85rem;
 }

@@ -113,7 +113,11 @@ window.selectors = {
   get modelSelectContainer() { return document.getElementById('model-select-container'); },
   get modelSelectTrigger() { return document.getElementById('model-select-trigger'); },
   get modelSelectOptions() { return document.getElementById('model-select-options'); },
-  get modelSelectedValue() { return document.querySelector('#model-select-trigger .selected-value'); }
+  get modelSelectedValue() { return document.querySelector('#model-select-trigger .selected-value'); },
+  get storySelectContainer() { return document.getElementById('story-select-container'); },
+  get storySelectTrigger() { return document.getElementById('story-select-trigger'); },
+  get storySelectOptions() { return document.getElementById('story-select-options'); },
+  get storySelect() { return document.getElementById('story-select'); }
 };
 
 // 提示詞與暫存變數

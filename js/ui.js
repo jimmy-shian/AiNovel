@@ -46,10 +46,23 @@ window.renderExpandedView = function(p, sceneTitle) {
         <span class="logo-sub">天機錄 ${window.SETTINGS.VERSION}</span>
       </div>
       <div class="story-selector-container">
-        <label for="story-select">切換因果</label>
-        <select id="story-select" class="story-select-dropdown glass">
-          ${storyOptions}
-        </select>
+        <label>切換因果</label>
+        <div class="custom-select story-custom-select" id="story-select-container">
+          <div class="select-trigger glass" id="story-select-trigger">
+            <span class="selected-value">${window.state.allStories[window.state.currentStoryId]?.title || '選擇故事'}</span>
+            <svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+          <div class="select-options glass hidden" id="story-select-options">
+            ${Object.entries(window.state.allStories || {}).map(([id, story]) => `
+              <div class="option ${id === window.state.currentStoryId ? 'selected' : ''}" data-value="${id}">${story.title}</div>
+            `).join('')}
+          </div>
+          <select id="story-select" class="hidden">
+            ${storyOptions}
+          </select>
+        </div>
       </div>
     </div>
 
@@ -349,6 +362,65 @@ window.setupCustomSelect = function() {
   });
 };
 
+window.setupStoryCustomSelect = function() {
+  const container = document.getElementById('story-select-container');
+  const trigger = document.getElementById('story-select-trigger');
+  const optionsList = document.getElementById('story-select-options');
+  const nativeSelect = document.getElementById('story-select');
+  const displayValue = trigger ? trigger.querySelector('.selected-value') : null;
+
+  if (!container || !trigger || !optionsList || !nativeSelect || !displayValue) return;
+
+  function syncOptions() {
+    optionsList.innerHTML = '';
+    Array.from(nativeSelect.options).forEach(opt => {
+      const optionEl = document.createElement('div');
+      optionEl.className = `option ${opt.value === nativeSelect.value ? 'selected' : ''}`;
+      optionEl.dataset.value = opt.value;
+      optionEl.textContent = opt.textContent;
+
+      optionEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const val = optionEl.dataset.value;
+        nativeSelect.value = val;
+        displayValue.textContent = opt.textContent;
+
+        optionsList.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
+        optionEl.classList.add('selected');
+
+        container.classList.remove('active');
+        optionsList.classList.add('hidden');
+
+        // 觸發故事切換
+        window.switchStory(val);
+      });
+
+      optionsList.appendChild(optionEl);
+    });
+    displayValue.textContent = nativeSelect.options[nativeSelect.selectedIndex]?.textContent || nativeSelect.value;
+  }
+
+  syncOptions();
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isActive = container.classList.contains('active');
+
+    document.querySelectorAll('.custom-select').forEach(cs => cs.classList.remove('active'));
+    document.querySelectorAll('.select-options').forEach(so => so.classList.add('hidden'));
+
+    if (!isActive) {
+      container.classList.add('active');
+      optionsList.classList.remove('hidden');
+    }
+  });
+
+  document.addEventListener('click', () => {
+    container.classList.remove('active');
+    optionsList.classList.add('hidden');
+  });
+};
+
 window.attachSidebarListeners = function() {
   const setupBtn = (id, action) => {
     const el = document.getElementById(id);
@@ -398,12 +470,8 @@ window.attachSidebarListeners = function() {
     });
   }
 
-  const storySelect = document.getElementById('story-select');
-  if (storySelect) {
-    storySelect.addEventListener('change', (e) => {
-      window.switchStory(e.target.value);
-    });
-  }
+  // 初始化故事客製化選單
+  window.setupStoryCustomSelect();
 };
 
 window.startOrbCycling = function() {
