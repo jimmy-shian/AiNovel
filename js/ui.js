@@ -185,16 +185,24 @@ window.renderStatItemHTML = function(label, value, color) {
   let displayValue = value;
   let progress = 0;
   let hasChanged = false;
+  let numVal = 0;
 
   if (typeof value === 'object' && value !== null) {
+    numVal = value.val;
     displayValue = `${value.val}/${value.max}`;
     progress = value.max > value.min ? ((value.val - value.min) / (value.max - value.min)) * 100 : 0;
     hasChanged = window.state.lastStats[label] !== value.val;
   } else {
+    numVal = Number(value) || 0;
     displayValue = label === '解析度' ? `${value}%` : value;
-    progress = Math.min(100, value);
+    progress = Math.min(100, numVal);
     hasChanged = window.state.lastStats[label] !== value;
   }
+
+  // 計算階位標籤 (僅針對非基礎三圍之自訂能力，或能力值顯示)
+  const isBasePool = label === '生命' || label === '靈力' || label === '業力';
+  const tierInfo = (!isBasePool && window.getStatTier) ? window.getStatTier(numVal) : null;
+  const tierHTML = tierInfo ? `<span class="stat-tier-badge ${tierInfo.class}">${tierInfo.name}</span>` : '';
 
   const odoHTML = window.createOdometerHTML(displayValue, hasChanged);
 
@@ -210,7 +218,10 @@ window.renderStatItemHTML = function(label, value, color) {
 
   return `
     <div class="stat-item" id="stat-item-${safeLabel}">
-      <span class="label">${label}</span>
+      <div class="label-wrapper">
+        <span class="label">${label}</span>
+        ${tierHTML}
+      </div>
       <span class="value ${String(displayValue).length > 5 ? 'long' : ''}">${odoHTML}</span>
       <div class="value-bar-container">
         <div class="value-bar" id="bar-${safeLabel}" style="width: ${Math.max(0, Math.min(100, progress))}%; background: ${color}; box-shadow: 0 0 10px ${color}66;"></div>
@@ -222,19 +233,32 @@ window.renderStatItemHTML = function(label, value, color) {
 window.renderQuickActions = function(options) {
   window.state.quickActionIndex = -1;
   window.selectors.quickActions.innerHTML = '';
-  options.slice(0, 4).forEach((opt, index) => {
-    const btn = document.createElement('button');
-    btn.className = 'quick-btn glass';
+  const player = window.state.game?.player;
 
-    const displayOpt = opt.length > 5 ? opt.slice(0, 5) + '...' : opt;
+  options.slice(0, 4).forEach((opt, index) => {
+    const req = window.parseOptionRequirement ? window.parseOptionRequirement(opt, player) : { eligible: true };
+    const btn = document.createElement('button');
+    btn.className = `quick-btn glass ${req.eligible ? '' : 'disabled-action'}`;
+    if (!req.eligible) {
+      btn.setAttribute('aria-disabled', 'true');
+    }
+
+    const displayOpt = opt.length > 6 ? opt.slice(0, 6) + '...' : opt;
+    const lockBadge = req.eligible ? '' : '<span class="lock-indicator">🔒</span>';
+    const tooltipText = req.eligible ? opt : `${opt}<br><span class="req-warning">${req.reason}</span>`;
 
     btn.innerHTML = `
       <span class="quick-index">${index + 1}</span>
-      <span class="quick-text">${displayOpt}</span>
-      <div class="quick-tooltip">${opt}</div>
+      <span class="quick-text">${lockBadge}${displayOpt}</span>
+      <div class="quick-tooltip">${tooltipText}</div>
     `;
 
     btn.addEventListener('click', () => {
+      if (!req.eligible) {
+        // 條件不足時，在輸入框簡短提示或聚焦但不強制送出
+        window.selectors.playerAction.placeholder = req.reason || '未達境界條件';
+        return;
+      }
       window.selectors.playerAction.value = opt;
       window.selectors.playerAction.focus();
     });

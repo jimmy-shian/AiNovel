@@ -136,13 +136,29 @@ ${JSON.stringify(g.story_flags || {})}`;
   }
 
   content += `\n\n【玩家狀態】
-  氣血 ${g.player.hp}/100, 靈力 ${g.player.sp}/100, 業力 ${g.player.threat}`;
+  氣血 ${g.player.hp}/100, 靈力 ${g.player.sp}/100, 業力 ${g.player.threat}/100`;
 
   if (g.player.abilities && Object.keys(g.player.abilities).length > 0) {
-    content += `\n能力：\n${Object.entries(g.player.abilities).map(([n, v]) => {
-      if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max})`;
-      return `- ${n}: ${v}`;
+    content += `\n能力階位：\n${Object.entries(g.player.abilities).map(([n, v]) => {
+      const val = typeof v === 'object' && v !== null ? v.val : v;
+      const tierInfo = window.getStatTier ? window.getStatTier(val) : { name: '凡胎' };
+      if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max}, 階位: ${tierInfo.name})`;
+      return `- ${n}: ${v} (階位: ${tierInfo.name})`;
     }).join('\n')}`;
+  }
+
+  // 檢查玩家本次行動是否帶有門檻或消耗要求
+  if (!isFirstMove && window.parseOptionRequirement) {
+    const req = window.parseOptionRequirement(action, g.player);
+    if (req.type === 'threshold') {
+      content += `\n\n【本次行動門檻檢定】
+- 檢定屬性：${req.stat}，要求門檻：≥${req.required}，玩家當前值：${req.current}
+- 判定結果：${req.eligible ? '檢定成功（順利發揮其境界之威能）' : '檢定失敗/強行施展（必須付出代價或引發反噬後果）'}`;
+    } else if (req.type === 'cost') {
+      content += `\n\n【本次行動消耗檢定】
+- 消耗項目：${req.cost} ${req.costType}，玩家當前存量：${req.current}
+- 判定結果：${req.eligible ? '真元充足，招式成功施展' : '資源透支，招式威力受挫並引發負擔'}`;
+    }
   }
 
   content += `\n\n【前情提要（最近兩輪的經歷，必須順著其脈絡向前推進，且嚴禁重跑相同的情節）】
@@ -190,11 +206,13 @@ window.buildMetaPromptContext = function(action) {
 【玩家目前狀態】
 氣血: ${g.player.hp}/100
 靈力: ${g.player.sp}/100
-業力: ${g.player.threat}
+業力: ${g.player.threat}/100
 能力:
 ${Object.entries(g.player.abilities || {}).map(([n, v]) => {
-    if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max})`;
-    return `- ${n}: ${v}`;
+    const val = typeof v === 'object' && v !== null ? v.val : v;
+    const tierInfo = window.getStatTier ? window.getStatTier(val) : { name: '凡胎' };
+    if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max}, 階位: ${tierInfo.name})`;
+    return `- ${n}: ${v} (階位: ${tierInfo.name})`;
   }).join('\n')}`;
 
   if (scene?.choices?.length > 0) {

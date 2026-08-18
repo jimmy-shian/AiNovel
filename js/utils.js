@@ -248,3 +248,94 @@ window.saveToStorage = function() {
   const key = window.getGameSaveKey();
   localStorage.setItem(key, JSON.stringify(window.state.game));
 };
+
+/**
+ * 數值階位計算 (凡胎 0-29 / 窺徑 30-59 / 入微 60-89 / 極境 90-100)
+ */
+window.getStatTier = function(val) {
+  const n = Number(val) || 0;
+  if (n >= 90) return { name: '極境', tier: 4, class: 'tier-epic' };
+  if (n >= 60) return { name: '入微', tier: 3, class: 'tier-high' };
+  if (n >= 30) return { name: '窺徑', tier: 2, class: 'tier-mid' };
+  return { name: '凡胎', tier: 1, class: 'tier-low' };
+};
+
+/**
+ * 選項門檻與代價解析器
+ * 支援格式：【天眼≥30】、【靈力≥20】、【消耗 20 靈力】
+ */
+window.parseOptionRequirement = function(optionText, player) {
+  if (!optionText || !player) return { eligible: true };
+
+  // 1. 檢定門檻格式：【屬性名≥數值】或【屬性名>=數值】
+  const thresholdMatch = optionText.match(/【([^【】≥>=]+)[≥>=]+(\d+)】/);
+  if (thresholdMatch) {
+    const statName = thresholdMatch[1].trim();
+    const reqVal = parseInt(thresholdMatch[2], 10);
+
+    let currentVal = 0;
+    if (statName === '生命' || statName === 'hp' || statName === 'HP') {
+      currentVal = player.hp || 0;
+    } else if (statName === '靈力' || statName === 'sp' || statName === 'SP') {
+      currentVal = player.sp || 0;
+    } else if (statName === '業力' || statName === '威脅' || statName === 'threat') {
+      currentVal = player.threat || 0;
+    } else if (player.abilities && player.abilities[statName] !== undefined) {
+      const a = player.abilities[statName];
+      currentVal = typeof a === 'object' && a !== null ? a.val : Number(a);
+    }
+
+    if (currentVal < reqVal) {
+      return {
+        eligible: false,
+        type: 'threshold',
+        stat: statName,
+        required: reqVal,
+        current: currentVal,
+        reason: `需 ${statName} ≥ ${reqVal}（當前 ${currentVal}）`
+      };
+    }
+    return {
+      eligible: true,
+      type: 'threshold',
+      stat: statName,
+      required: reqVal,
+      current: currentVal
+    };
+  }
+
+  // 2. 資源消耗格式：【消耗 20 靈力】或【消耗 15 生命】
+  const costMatch = optionText.match(/【消耗\s*(\d+)\s*(靈力|生命|真元|氣血|SP|HP)】/i);
+  if (costMatch) {
+    const cost = parseInt(costMatch[1], 10);
+    const typeStr = costMatch[2];
+    const isSp = /靈力|真元|SP/i.test(typeStr);
+    const poolVal = isSp ? (player.sp || 0) : (player.hp || 0);
+    const poolName = isSp ? '靈力' : '生命';
+
+    if (poolVal < cost) {
+      return {
+        eligible: false,
+        type: 'cost',
+        cost: cost,
+        costType: poolName,
+        current: poolVal,
+        reason: `${poolName}不足（需 ${cost}，當前 ${poolVal}）`
+      };
+    }
+    return {
+      eligible: true,
+      type: 'cost',
+      cost: cost,
+      costType: poolName,
+      current: poolVal
+    };
+  }
+
+  return { eligible: true };
+};
+
+window.checkOptionEligibility = function(optionText, player) {
+  return window.parseOptionRequirement(optionText, player).eligible;
+};
+

@@ -93,6 +93,93 @@ def parse_pairs(raw_str):
                 continue
     return out
 
+import re
+
+def get_stat_tier(val):
+    """
+    Python 版本的 getStatTier 實現
+    """
+    try:
+        n = float(val)
+    except (ValueError, TypeError):
+        n = 0.0
+    if n >= 90:
+        return {'name': '極境', 'tier': 4, 'class': 'tier-epic'}
+    if n >= 60:
+        return {'name': '入微', 'tier': 3, 'class': 'tier-high'}
+    if n >= 30:
+        return {'name': '窺徑', 'tier': 2, 'class': 'tier-mid'}
+    return {'name': '凡胎', 'tier': 1, 'class': 'tier-low'}
+
+def parse_option_requirement(option_text, player):
+    """
+    Python 版本的 parseOptionRequirement 實現
+    """
+    if not option_text or not player:
+        return {'eligible': True}
+
+    # 1. 檢定門檻格式：【屬性名≥數值】或【屬性名>=數值】
+    threshold_match = re.search(r'【([^【】≥>=]+)[≥>=]+(\d+)】', option_text)
+    if threshold_match:
+        stat_name = threshold_match.group(1).strip()
+        req_val = int(threshold_match.group(2))
+
+        current_val = 0
+        if stat_name in ('生命', 'hp', 'HP'):
+            current_val = player.get('hp', 0)
+        elif stat_name in ('靈力', 'sp', 'SP'):
+            current_val = player.get('sp', 0)
+        elif stat_name in ('業力', '威脅', 'threat'):
+            current_val = player.get('threat', 0)
+        elif 'abilities' in player and stat_name in player['abilities']:
+            a = player['abilities'][stat_name]
+            current_val = a.get('val', 0) if isinstance(a, dict) else float(a)
+
+        if current_val < req_val:
+            return {
+                'eligible': False,
+                'type': 'threshold',
+                'stat': stat_name,
+                'required': req_val,
+                'current': current_val,
+                'reason': f'需 {stat_name} ≥ {req_val}（當前 {current_val}）'
+            }
+        return {
+            'eligible': True,
+            'type': 'threshold',
+            'stat': stat_name,
+            'required': req_val,
+            'current': current_val
+        }
+
+    # 2. 資源消耗格式：【消耗 20 靈力】或【消耗 15 生命】
+    cost_match = re.search(r'【消耗\s*(\d+)\s*(靈力|生命|真元|氣血|SP|HP)】', option_text, re.IGNORECASE)
+    if cost_match:
+        cost = int(cost_match.group(1))
+        type_str = cost_match.group(2)
+        is_sp = bool(re.search(r'靈力|真元|SP', type_str, re.IGNORECASE))
+        pool_val = player.get('sp', 0) if is_sp else player.get('hp', 0)
+        pool_name = '靈力' if is_sp else '生命'
+
+        if pool_val < cost:
+            return {
+                'eligible': False,
+                'type': 'cost',
+                'cost': cost,
+                'costType': pool_name,
+                'current': pool_val,
+                'reason': f'{pool_name}不足（需 {cost}，當前 {pool_val}）'
+            }
+        return {
+            'eligible': True,
+            'type': 'cost',
+            'cost': cost,
+            'costType': pool_name,
+            'current': pool_val
+        }
+
+    return {'eligible': True}
+
 def run_all_tests():
     print("====== 開始執行天衍九州核心演算法測試 ======")
     
@@ -170,8 +257,63 @@ def run_all_tests():
         assert 'director' in prompts, f"故事 {story_id} 缺少 director 提示詞"
         assert 'narrative' in prompts, f"故事 {story_id} 缺少 narrative 提示詞"
         assert 'meta' in prompts, f"故事 {story_id} 缺少 meta 提示詞"
+        
+        # 驗證 prompt 中是否已包含門檻與階位回饋指引
+        assert "階位" in prompts['director'] or "門檻" in prompts['director'], f"故事 {story_id} director 缺少階位/門檻指引"
+        assert "窺徑" in prompts['narrative'] or "境界" in prompts['narrative'], f"故事 {story_id} narrative 缺少境界描繪指引"
+        assert "門檻" in prompts['meta'] or "消耗" in prompts['meta'], f"故事 {story_id} meta 缺少門檻/消耗規範"
     
     print("=> 測試 3 通過！")
+
+    # Test 4: 階位計算驗證 (get_stat_tier)
+    print("[測試 4] 測試能力階位劃分 (get_stat_tier)...")
+    assert get_stat_tier(0)['name'] == '凡胎'
+    assert get_stat_tier(25)['name'] == '凡胎'
+    assert get_stat_tier(30)['name'] == '窺徑'
+    assert get_stat_tier(59)['name'] == '窺徑'
+    assert get_stat_tier(60)['name'] == '入微'
+    assert get_stat_tier(89)['name'] == '入微'
+    assert get_stat_tier(90)['name'] == '極境'
+    assert get_stat_tier(100)['name'] == '極境'
+    print("=> 測試 4 通過！")
+
+    # Test 5: 選項門檻與消耗檢驗 (parse_option_requirement)
+    print("[測試 5] 測試選項門檻與消耗判定 (parse_option_requirement)...")
+    mock_player = {
+        'hp': 80,
+        'sp': 15,
+        'threat': 20,
+        'abilities': {
+            '天眼': {'val': 35, 'min': 0, 'max': 100},
+            '劍意': 10
+        }
+    }
+
+    # 一般選項無門檻
+    assert parse_option_requirement("觀察四周環境", mock_player)['eligible'] is True
+
+    # 滿足天眼門檻 (35 >= 30)
+    res_t1 = parse_option_requirement("【天眼≥30】看穿陣法破綻", mock_player)
+    assert res_t1['eligible'] is True
+    assert res_t1['stat'] == '天眼'
+
+    # 未滿足劍意門檻 (10 < 30)
+    res_t2 = parse_option_requirement("【劍意≥30】一劍破萬法", mock_player)
+    assert res_t2['eligible'] is False
+    assert res_t2['required'] == 30
+    assert res_t2['current'] == 10
+
+    # 滿足生命消耗 (80 >= 20)
+    res_c1 = parse_option_requirement("【消耗 20 生命】燃燒精血遁走", mock_player)
+    assert res_c1['eligible'] is True
+
+    # 靈力不足 (15 < 20)
+    res_c2 = parse_option_requirement("【消耗 20 靈力】催動九天雷引", mock_player)
+    assert res_c2['eligible'] is False
+    assert res_c2['cost'] == 20
+    assert res_c2['costType'] == '靈力'
+
+    print("=> 測試 5 通過！")
     
     print("====== 所有測試皆已順利通過！ ======")
 
