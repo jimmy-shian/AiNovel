@@ -150,7 +150,44 @@ body {
   color: var(--text-main);
 }
 
+.sync-models-btn {
+  background: rgba(226, 192, 128, 0.12);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.sync-models-btn:hover {
+  background: var(--accent);
+  color: var(--bg-dark);
+  box-shadow: 0 0 10px rgba(226, 192, 128, 0.4);
+}
+
+.models-fetch-status {
+  font-size: 0.75rem;
+  min-height: 16px;
+  margin-top: 4px;
+  transition: var(--transition);
+}
+
+.models-fetch-status.loading {
+  color: #60a5fa;
+}
+
+.models-fetch-status.success {
+  color: #4ade80;
+}
+
+.models-fetch-status.error {
+  color: #f87171;
+}
+
 /* 通用隱藏類別 */
 .hidden {
   display: none !important;
 }
+

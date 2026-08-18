@@ -31,6 +31,20 @@ async function init() {
   if (savedKey) window.selectors.apiKey.value = savedKey;
   window.selectors.proxyToggle.checked = window.CONFIG.useProxy;
 
+  // 載入已快取之模型清單或使用系統預設模型清單
+  const savedModel = localStorage.getItem(window.SETTINGS.STORAGE_KEYS.selectedModel) || 'openai/gpt-oss-120b';
+  const cachedModelsRaw = localStorage.getItem(window.SETTINGS.STORAGE_KEYS.cachedModels);
+  let initialModels = window.SETTINGS.DEFAULT_MODELS;
+  if (cachedModelsRaw) {
+    try {
+      const parsed = JSON.parse(cachedModelsRaw);
+      if (Array.isArray(parsed) && parsed.length > 0) initialModels = parsed;
+    } catch (e) {}
+  }
+  if (window.populateModelList) {
+    window.populateModelList(initialModels, savedModel);
+  }
+
   // 載入遊戲進度
   const saved = window.loadFromStorage();
 
@@ -59,17 +73,71 @@ async function init() {
   window.render();
   setupEventListeners();
   window.setupCustomSelect();
+
+  // 背景自動嘗試同步一次最新模型清單
+  setTimeout(() => {
+    window.syncModelsFromEndpoint(false);
+  }, 800);
 }
+
+window.syncModelsFromEndpoint = async function(isManual = true) {
+  const statusEl = document.getElementById('models-fetch-status');
+  if (isManual && statusEl) {
+    statusEl.textContent = '⏳ 正在向端點查詢最新可用模型...';
+    statusEl.className = 'models-fetch-status loading';
+  }
+
+  try {
+    const models = await window.fetchDynamicModels();
+    if (models && models.length > 0) {
+      const currentModel = window.selectors.modelSelect?.value || localStorage.getItem(window.SETTINGS.STORAGE_KEYS.selectedModel) || 'openai/gpt-oss-120b';
+      window.populateModelList(models, currentModel);
+      if (statusEl) {
+        statusEl.textContent = `✅ 成功同步 ${models.length} 個最新可用模型！`;
+        statusEl.className = 'models-fetch-status success';
+      }
+    } else {
+      if (isManual && statusEl) {
+        statusEl.textContent = '⚠️ 端點回傳空清單，已啟用系統預設推薦模型';
+        statusEl.className = 'models-fetch-status error';
+      }
+    }
+  } catch (err) {
+    if (isManual && statusEl) {
+      const is404 = String(err.message).includes('404');
+      const isCors = String(err.message).includes('Failed to fetch');
+      if (is404) {
+        statusEl.textContent = '⚠️ 端點 404 (請重啟 server.py 或更新 Worker 轉發 /v1/models)';
+      } else if (isCors) {
+        statusEl.textContent = '⚠️ CORS 阻擋 (請勾選「隱匿蹤跡」透過代理端點轉發)';
+      } else {
+        statusEl.textContent = `❌ 同步失敗: ${err.message}`;
+      }
+      statusEl.className = 'models-fetch-status error';
+    }
+  }
+};
 
 function setupEventListeners() {
   // 冥想設定按鈕
-  document.getElementById('btn-settings')?.addEventListener('click', () => window.selectors.settingsModal.classList.remove('hidden'));
+  document.getElementById('btn-settings')?.addEventListener('click', () => {
+    window.selectors.settingsModal.classList.remove('hidden');
+  });
+
+  // 同步端點模型按鈕
+  document.getElementById('btn-fetch-models')?.addEventListener('click', () => {
+    window.syncModelsFromEndpoint(true);
+  });
   
   // 儲存設定
   window.selectors.btnCloseSettings.addEventListener('click', async () => {
     const key = window.selectors.apiKey.value.trim();
+    const model = window.selectors.modelSelect.value;
     window.CONFIG.useProxy = window.selectors.proxyToggle.checked;
     localStorage.setItem(window.SETTINGS.STORAGE_KEYS.apiKey, key);
+    if (model) {
+      localStorage.setItem(window.SETTINGS.STORAGE_KEYS.selectedModel, model);
+    }
     
     window.selectors.settingsModal.classList.add('hidden');
 

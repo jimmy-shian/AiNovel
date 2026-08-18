@@ -6,13 +6,31 @@ window.SETTINGS = {
     apiKey: 'tianyan_api_key',
     useProxy: 'tianyan_use_proxy',
     gameSave: 'tianyan_game_save',
+    selectedModel: 'tianyan_selected_model',
+    cachedModels: 'tianyan_cached_models',
   },
 
   ENDPOINTS: {
     localProxy: 'http://127.0.0.1:4444/v1/chat/completions',
     remoteProxy: 'https://restless-hat-8ef5.jimmy910824.workers.dev/v1/chat/completions',
     direct: 'https://integrate.api.nvidia.com/v1/chat/completions',
+    localModels: 'http://127.0.0.1:4444/v1/models',
+    remoteModels: 'https://restless-hat-8ef5.jimmy910824.workers.dev/v1/models',
+    directModels: 'https://integrate.api.nvidia.com/v1/models',
   },
+
+  DEFAULT_MODELS: [
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "deepseek-ai/deepseek-r1",
+    "deepseek-ai/deepseek-v3",
+    "qwen/qwen3.5-122b-a10b",
+    "meta/llama-3.3-70b-instruct",
+    "meta/llama-3.1-405b-instruct",
+    "meta/llama-3.1-70b-instruct",
+    "nvidia/nemotron-4-340b-instruct",
+    "mistralai/mistral-large-2-instruct",
+  ],
 
   LLM: {
     defaults: {
@@ -67,6 +85,13 @@ window.CONFIG = {
     return isLocal
       ? window.SETTINGS.ENDPOINTS.localProxy
       : window.SETTINGS.ENDPOINTS.remoteProxy;
+  },
+  get modelsUrl() {
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (this.useProxy) {
+      return isLocal ? window.SETTINGS.ENDPOINTS.localModels : window.SETTINGS.ENDPOINTS.remoteModels;
+    }
+    return window.SETTINGS.ENDPOINTS.directModels;
   },
   get directUrl() {
     return window.SETTINGS.ENDPOINTS.direct;

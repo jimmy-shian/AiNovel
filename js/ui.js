@@ -332,6 +332,81 @@ window.showFloatingImpact = function(label, delta) {
   }
 };
 
+window.populateModelList = function(models, selectedModel = '') {
+  const container = window.selectors.modelSelectContainer;
+  const optionsList = window.selectors.modelSelectOptions;
+  const nativeSelect = window.selectors.modelSelect;
+  const displayValue = window.selectors.modelSelectedValue;
+  if (!optionsList || !nativeSelect) return;
+
+  const currentVal = selectedModel || nativeSelect.value || localStorage.getItem(window.SETTINGS.STORAGE_KEYS.selectedModel) || 'openai/gpt-oss-120b';
+
+  nativeSelect.innerHTML = '';
+  optionsList.innerHTML = '';
+
+  let matched = false;
+  models.forEach(modelId => {
+    // 原生 select option
+    const opt = document.createElement('option');
+    opt.value = modelId;
+    opt.textContent = modelId;
+    if (modelId === currentVal) {
+      opt.selected = true;
+      matched = true;
+    }
+    nativeSelect.appendChild(opt);
+
+    // 自訂下拉清單 option
+    const optionEl = document.createElement('div');
+    optionEl.className = `option ${modelId === currentVal ? 'selected' : ''}`;
+    optionEl.dataset.value = modelId;
+    optionEl.textContent = modelId;
+
+    optionEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      nativeSelect.value = modelId;
+      if (displayValue) displayValue.textContent = modelId;
+      localStorage.setItem(window.SETTINGS.STORAGE_KEYS.selectedModel, modelId);
+
+      optionsList.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
+      optionEl.classList.add('selected');
+
+      container?.classList.remove('active');
+      optionsList.classList.add('hidden');
+    });
+
+    optionsList.appendChild(optionEl);
+  });
+
+  if (!matched && currentVal) {
+    const opt = document.createElement('option');
+    opt.value = currentVal;
+    opt.textContent = currentVal;
+    opt.selected = true;
+    nativeSelect.insertBefore(opt, nativeSelect.firstChild);
+
+    const optionEl = document.createElement('div');
+    optionEl.className = 'option selected';
+    optionEl.dataset.value = currentVal;
+    optionEl.textContent = currentVal;
+    optionEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      nativeSelect.value = currentVal;
+      if (displayValue) displayValue.textContent = currentVal;
+      localStorage.setItem(window.SETTINGS.STORAGE_KEYS.selectedModel, currentVal);
+      optionsList.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
+      optionEl.classList.add('selected');
+      container?.classList.remove('active');
+      optionsList.classList.add('hidden');
+    });
+    optionsList.insertBefore(optionEl, optionsList.firstChild);
+  }
+
+  if (displayValue) {
+    displayValue.textContent = nativeSelect.value || currentVal;
+  }
+};
+
 window.setupCustomSelect = function() {
   const container = window.selectors.modelSelectContainer;
   const trigger = window.selectors.modelSelectTrigger;
@@ -352,6 +427,7 @@ window.setupCustomSelect = function() {
         const val = optionEl.dataset.value;
         nativeSelect.value = val;
         displayValue.textContent = opt.textContent;
+        localStorage.setItem(window.SETTINGS.STORAGE_KEYS.selectedModel, val);
 
         optionsList.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
         optionEl.classList.add('selected');
@@ -365,7 +441,9 @@ window.setupCustomSelect = function() {
     displayValue.textContent = nativeSelect.options[nativeSelect.selectedIndex]?.textContent || nativeSelect.value;
   }
 
-  syncOptions();
+  if (optionsList.children.length === 0) {
+    syncOptions();
+  }
 
   trigger.addEventListener('click', (e) => {
     e.stopPropagation();

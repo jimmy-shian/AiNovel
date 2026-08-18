@@ -83,7 +83,12 @@
         <input id="api-key" type="password" placeholder="輸入 API 金鑰..." />
       </div>
       <div class="input-group">
-        <label>運算模型</label>
+        <div class="label-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <label style="margin-bottom: 0;">運算模型</label>
+          <button id="btn-fetch-models" type="button" class="sync-models-btn" title="從端點獲取最新可用模型">
+            🔄 同步端點模型
+          </button>
+        </div>
         <div class="custom-select" id="model-select-container">
           <div class="select-trigger glass" id="model-select-trigger">
             <span class="selected-value">openai/gpt-oss-120b</span>
@@ -95,14 +100,29 @@
           <div class="select-options glass hidden" id="model-select-options">
             <div class="option" data-value="openai/gpt-oss-120b">openai/gpt-oss-120b</div>
             <div class="option" data-value="openai/gpt-oss-20b">openai/gpt-oss-20b</div>
+            <div class="option" data-value="deepseek-ai/deepseek-r1">deepseek-ai/deepseek-r1</div>
+            <div class="option" data-value="deepseek-ai/deepseek-v3">deepseek-ai/deepseek-v3</div>
             <div class="option" data-value="qwen/qwen3.5-122b-a10b">qwen/qwen3.5-122b-a10b</div>
+            <div class="option" data-value="meta/llama-3.3-70b-instruct">meta/llama-3.3-70b-instruct</div>
+            <div class="option" data-value="meta/llama-3.1-405b-instruct">meta/llama-3.1-405b-instruct</div>
+            <div class="option" data-value="meta/llama-3.1-70b-instruct">meta/llama-3.1-70b-instruct</div>
+            <div class="option" data-value="nvidia/nemotron-4-340b-instruct">nvidia/nemotron-4-340b-instruct</div>
+            <div class="option" data-value="mistralai/mistral-large-2-instruct">mistralai/mistral-large-2-instruct</div>
           </div>
           <select id="model-select" class="hidden">
             <option value="openai/gpt-oss-120b">openai/gpt-oss-120b</option>
             <option value="openai/gpt-oss-20b">openai/gpt-oss-20b</option>
+            <option value="deepseek-ai/deepseek-r1">deepseek-ai/deepseek-r1</option>
+            <option value="deepseek-ai/deepseek-v3">deepseek-ai/deepseek-v3</option>
             <option value="qwen/qwen3.5-122b-a10b">qwen/qwen3.5-122b-a10b</option>
+            <option value="meta/llama-3.3-70b-instruct">meta/llama-3.3-70b-instruct</option>
+            <option value="meta/llama-3.1-405b-instruct">meta/llama-3.1-405b-instruct</option>
+            <option value="meta/llama-3.1-70b-instruct">meta/llama-3.1-70b-instruct</option>
+            <option value="nvidia/nemotron-4-340b-instruct">nvidia/nemotron-4-340b-instruct</option>
+            <option value="mistralai/mistral-large-2-instruct">mistralai/mistral-large-2-instruct</option>
           </select>
         </div>
+        <div id="models-fetch-status" class="models-fetch-status"></div>
       </div>
       <div class="input-group checkbox-group">
         <input id="proxy-toggle" type="checkbox" checked />

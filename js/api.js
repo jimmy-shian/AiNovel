@@ -230,3 +230,80 @@ ${Object.entries(g.player.abilities || {}).map(([n, v]) => {
 
   return content;
 };
+
+/**
+ * 從端點動態獲取可用模型清單
+ */
+window.fetchDynamicModels = async function() {
+  const apiKey = window.selectors.apiKey?.value?.trim() || localStorage.getItem(window.SETTINGS.STORAGE_KEYS.apiKey) || '';
+  const url = window.CONFIG.modelsUrl;
+  const headers = { 'Accept': 'application/json' };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  try {
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      throw new Error(`API 回傳狀態碼: ${res.status}`);
+    }
+    const data = await res.json();
+    const modelIds = [];
+
+    // 1. OpenAI / NVIDIA NIM 標準格式：{ data: [{ id: "..." }] }
+    if (data && Array.isArray(data.data)) {
+      data.data.forEach(item => {
+        if (typeof item === 'object' && item && item.id) {
+          modelIds.push(String(item.id));
+        } else if (typeof item === 'string') {
+          modelIds.push(item);
+        }
+      });
+    }
+    // 2. Ollama 格式：{ models: [{ name: "..." }] }
+    else if (data && Array.isArray(data.models)) {
+      data.models.forEach(item => {
+        const id = item.name || item.model || item.id;
+        if (id) modelIds.push(String(id));
+      });
+    }
+    // 3. 純陣列格式：[{ id: "..." }] 或 ["model-a", "model-b"]
+    else if (Array.isArray(data)) {
+      data.forEach(item => {
+        if (typeof item === 'object' && item && item.id) modelIds.push(String(item.id));
+        else if (typeof item === 'string') modelIds.push(item);
+      });
+    }
+
+    if (modelIds.length > 0) {
+      // 依小說推演推薦順序排序（優先排 gpt-oss、deepseek、qwen、llama、nemotron）
+      modelIds.sort((a, b) => {
+        const score = (name) => {
+          const lower = name.toLowerCase();
+          if (lower.includes('gpt-oss-120b')) return -20;
+          if (lower.includes('gpt-oss')) return -18;
+          if (lower.includes('deepseek-r1')) return -16;
+          if (lower.includes('deepseek')) return -14;
+          if (lower.includes('qwen3.5')) return -12;
+          if (lower.includes('qwen')) return -10;
+          if (lower.includes('llama-3.3')) return -8;
+          if (lower.includes('llama')) return -6;
+          if (lower.includes('nemotron')) return -4;
+          return 0;
+        };
+        const diff = score(a) - score(b);
+        if (diff !== 0) return diff;
+        return a.localeCompare(b);
+      });
+
+      // 快取至 localStorage
+      localStorage.setItem(window.SETTINGS.STORAGE_KEYS.cachedModels, JSON.stringify(modelIds));
+      return modelIds;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[fetchDynamicModels] 動態獲取模型失敗:', err.message);
+    throw err;
+  }
+};
+
