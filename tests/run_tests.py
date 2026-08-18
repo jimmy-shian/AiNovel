@@ -314,6 +314,95 @@ def run_all_tests():
     assert res_c2['costType'] == '靈力'
 
     print("=> 測試 5 通過！")
+
+    # Test 6: 動態模型格式解析與代理路由 (/v1/models)
+    print("[測試 6] 測試動態模型格式解析、排序與代理端點...")
+    
+    # 6.1 測試 OpenAI / NVIDIA NIM 格式解析與自訂排序
+    def parse_and_sort_models(data):
+        model_ids = []
+        if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
+            for item in data["data"]:
+                if isinstance(item, dict) and "id" in item:
+                    model_ids.append(str(item["id"]))
+                elif isinstance(item, str):
+                    model_ids.append(item)
+        elif isinstance(data, dict) and "models" in data and isinstance(data["models"], list):
+            for item in data["models"]:
+                if isinstance(item, dict):
+                    name = item.get("name") or item.get("model") or item.get("id")
+                    if name:
+                        model_ids.append(str(name))
+                elif isinstance(item, str):
+                    model_ids.append(item)
+        
+        def score(name):
+            lower = name.lower()
+            if 'gpt-oss-120b' in lower: return -20
+            if 'gpt-oss' in lower: return -18
+            if 'deepseek-r1' in lower: return -16
+            if 'deepseek' in lower: return -14
+            if 'qwen3.5' in lower: return -12
+            if 'qwen' in lower: return -10
+            if 'llama-3.3' in lower: return -8
+            if 'llama' in lower: return -6
+            if 'nemotron' in lower: return -4
+            return 0
+
+        model_ids.sort(key=lambda x: (score(x), x))
+        return model_ids
+
+    openai_sample = {
+        "data": [
+            {"id": "meta/llama-3.1-70b-instruct"},
+            {"id": "openai/gpt-oss-120b"},
+            {"id": "deepseek-ai/deepseek-r1"},
+            {"id": "qwen/qwen3.5-122b-a10b"}
+        ]
+    }
+    sorted_openai = parse_and_sort_models(openai_sample)
+    assert sorted_openai[0] == "openai/gpt-oss-120b"
+    assert sorted_openai[1] == "deepseek-ai/deepseek-r1"
+    assert sorted_openai[2] == "qwen/qwen3.5-122b-a10b"
+    assert sorted_openai[3] == "meta/llama-3.1-70b-instruct"
+
+    # 6.2 測試 Ollama 格式解析
+    ollama_sample = {
+        "models": [
+            {"name": "llama3:latest"},
+            {"model": "qwen2.5:32b"}
+        ]
+    }
+    sorted_ollama = parse_and_sort_models(ollama_sample)
+    assert "qwen2.5:32b" in sorted_ollama
+    assert "llama3:latest" in sorted_ollama
+
+    # 6.3 測試 FastAPI /v1/models 路由代理功能
+    from fastapi.testclient import TestClient
+    from server import app
+    from unittest.mock import patch, MagicMock
+
+    client = TestClient(app)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "data": [
+            {"id": "openai/gpt-oss-120b"},
+            {"id": "nvidia/nemotron-4-340b-instruct"}
+        ]
+    }
+
+    with patch("requests.get", return_value=mock_resp) as mock_get:
+        res = client.get("/v1/models", headers={"Authorization": "Bearer test-api-key"})
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data["data"]) == 2
+        assert data["data"][0]["id"] == "openai/gpt-oss-120b"
+        mock_get.assert_called_once()
+        assert mock_get.call_args[0][0] == "https://integrate.api.nvidia.com/v1/models"
+        assert mock_get.call_args[1]["headers"]["Authorization"] == "Bearer test-api-key"
+
+    print("=> 測試 6 通過！")
     
     print("====== 所有測試皆已順利通過！ ======")
 

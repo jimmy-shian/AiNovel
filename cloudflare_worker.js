@@ -1,20 +1,10 @@
-# Cloudflare Worker 代理腳本
-
-本專案之 Cloudflare Worker 代理服務程式碼，提供 `/v1/chat/completions` (劇情推演) 與 `/v1/models` (實時模型清單) 的跨域代理轉發。
-
-```javascript
 /**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run "npm run dev" in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run "npm run deploy" to publish your worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
+ * Cloudflare Worker - NVIDIA NIM API 代理轉發服務
+ * 支援 /v1/chat/completions (劇情生成) 與 /v1/models (動態模型清單)
  */
 export default {
   async fetch(request, env) {
-    // ✅ 1. CORS 預檢（加入 GET 支援）
+    // ✅ 1. CORS 預檢（支援 GET, POST, OPTIONS）
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
@@ -35,11 +25,15 @@ export default {
         <html>
         <head>
           <meta charset="UTF-8">
-          <title>My Worker</title>
+          <title>天衍九州 AI Novel 代理服務</title>
         </head>
-        <body>
-          <h1>Hello 👋</h1>
-          <p>你的 Cloudflare Worker 已經成功運作！</p>
+        <body style="font-family: sans-serif; padding: 40px; line-height: 1.6; background: #121A12; color: #FDFBF7;">
+          <h1 style="color: #e2c080;">Hello 👋</h1>
+          <p>天衍九州 Cloudflare Worker 代理服務已成功運作中！</p>
+          <ul>
+            <li><code>POST /v1/chat/completions</code>: 劇情推演串流轉發</li>
+            <li><code>GET /v1/models</code>: 實時模型清單查詢</li>
+          </ul>
         </body>
         </html>
       `, {
@@ -97,8 +91,7 @@ export default {
       });
     }
 
-    // ❌ 其他路徑
+    // ❌ 其他未定義路徑
     return new Response("Not Found", { status: 404 });
   },
 };
-```

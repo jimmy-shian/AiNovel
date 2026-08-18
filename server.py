@@ -17,6 +17,34 @@ app.add_middleware(
 )
 
 INVOKE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+MODELS_URL = "https://integrate.api.nvidia.com/v1/models"
+
+@app.get("/v1/models")
+async def models_proxy(request: Request):
+    headers = dict(request.headers)
+    auth_header = headers.get("authorization") or headers.get("Authorization")
+    proxy_headers = {
+        "Accept": "application/json"
+    }
+    if auth_header:
+        proxy_headers["Authorization"] = auth_header
+
+    try:
+        response = requests.get(
+            MODELS_URL,
+            headers=proxy_headers,
+            timeout=15
+        )
+        if response.status_code != 200:
+            try:
+                error_data = response.json()
+                return JSONResponse(status_code=response.status_code, content=error_data)
+            except:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+        return response.json()
+    except Exception as e:
+        print(f"Models proxy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/v1/chat/completions")
 async def chat_proxy(request: Request):
