@@ -1,24 +1,31 @@
 /**
- * Cloudflare Worker - NVIDIA NIM API 代理轉發服務
- * 支援 /v1/chat/completions (劇情生成) 與 /v1/models (動態模型清單)
+ * Cloudflare Worker - NVIDIA NIM API 代理轉發服務 (天衍九州)
+ * 支援:
+ * - GET  /v1/models          (實時動態模型清單)
+ * - POST /v1/chat/completions (劇情推演對話 / SSE 串流轉發)
+ * - OPTIONS *                (CORS 預檢)
  */
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept",
+  "Access-Control-Max-Age": "86400",
+};
+
 export default {
   async fetch(request, env) {
-    // ✅ 1. CORS 預檢（支援 GET, POST, OPTIONS）
+    // ✅ 1. CORS 預檢請求處理
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        },
+        headers: CORS_HEADERS,
       });
     }
 
     const url = new URL(request.url);
 
-    // ✅ 2. 首頁畫面
+    // ✅ 2. 根目錄狀態檢查畫面
     if (url.pathname === "/") {
       return new Response(`
         <!DOCTYPE html>
@@ -27,71 +34,107 @@ export default {
           <meta charset="UTF-8">
           <title>天衍九州 AI Novel 代理服務</title>
         </head>
-        <body style="font-family: sans-serif; padding: 40px; line-height: 1.6; background: #121A12; color: #FDFBF7;">
-          <h1 style="color: #e2c080;">Hello 👋</h1>
-          <p>天衍九州 Cloudflare Worker 代理服務已成功運作中！</p>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; line-height: 1.6; background: #121A12; color: #FDFBF7;">
+          <h1 style="color: #e2c080;">天機代理 (Cloudflare Worker) 運作正常 ⚡</h1>
+          <p>已支援端點：</p>
           <ul>
-            <li><code>POST /v1/chat/completions</code>: 劇情推演串流轉發</li>
-            <li><code>GET /v1/models</code>: 實時模型清單查詢</li>
+            <li><code>GET /v1/models</code>: 實時查詢 NVIDIA NIM 可用模型清單</li>
+            <li><code>POST /v1/chat/completions</code>: 劇情推演對話與 SSE 串流生成</li>
           </ul>
         </body>
         </html>
       `, {
         headers: {
-          "Content-Type": "text/html; charset=utf-8"
+          "Content-Type": "text/html; charset=utf-8",
+          ...CORS_HEADERS
         }
       });
     }
 
     // ✅ 3. 動態模型清單轉發 (GET /v1/models)
     if (url.pathname === "/v1/models") {
-      const authHeader = request.headers.get("Authorization");
-      const headers = { "Accept": "application/json" };
-      if (authHeader) headers["Authorization"] = authHeader;
+      if (request.method !== "GET") {
+        return new Response(JSON.stringify({ error: { message: "Method Not Allowed" } }), {
+          status: 405,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS }
+        });
+      }
 
-      const response = await fetch("https://integrate.api.nvidia.com/v1/models", {
-        method: "GET",
-        headers: headers,
-      });
+      try {
+        const authHeader = request.headers.get("Authorization");
+        const proxyHeaders = { "Accept": "application/json" };
+        if (authHeader) proxyHeaders["Authorization"] = authHeader;
 
-      return new Response(response.body, {
-        status: response.status,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        },
-      });
+        const response = await fetch("https://integrate.api.nvidia.com/v1/models", {
+          method: "GET",
+          headers: proxyHeaders,
+        });
+
+        const contentType = response.headers.get("content-type") || "application/json";
+
+        return new Response(response.body, {
+          status: response.status,
+          headers: {
+            "Content-Type": contentType,
+            ...CORS_HEADERS,
+          },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({
+          error: { message: `Worker 模型端點轉發異常: ${err.message}` }
+        }), {
+          status: 502,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS }
+        });
+      }
     }
 
     // ✅ 4. 劇情生成對話轉發 (POST /v1/chat/completions)
     if (url.pathname === "/v1/chat/completions") {
-      const authHeader = request.headers.get("Authorization");
+      if (request.method !== "POST") {
+        return new Response(JSON.stringify({ error: { message: "Method Not Allowed" } }), {
+          status: 405,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS }
+        });
+      }
 
-      const response = await fetch(
-        "https://integrate.api.nvidia.com/v1/chat/completions",
-        {
+      try {
+        const authHeader = request.headers.get("Authorization");
+        const proxyHeaders = {
+          "Content-Type": "application/json",
+          "Accept": request.headers.get("Accept") || "application/json"
+        };
+        if (authHeader) proxyHeaders["Authorization"] = authHeader;
+
+        const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
           method: "POST",
-          headers: {
-            "Authorization": authHeader || "",
-            "Content-Type": "application/json",
-          },
+          headers: proxyHeaders,
           body: request.body,
-        }
-      );
+        });
 
-      return new Response(response.body, {
-        status: response.status,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        },
-      });
+        const contentType = response.headers.get("content-type") || "application/json";
+
+        return new Response(response.body, {
+          status: response.status,
+          headers: {
+            "Content-Type": contentType,
+            ...CORS_HEADERS,
+          },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({
+          error: { message: `Worker 劇情生成轉發異常: ${err.message}` }
+        }), {
+          status: 502,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS }
+        });
+      }
     }
 
-    // ❌ 其他未定義路徑
-    return new Response("Not Found", { status: 404 });
+    // ❌ 5. 未定義路徑
+    return new Response(JSON.stringify({ error: { message: "Route Not Found" } }), {
+      status: 404,
+      headers: { "Content-Type": "application/json", ...CORS_HEADERS }
+    });
   },
 };

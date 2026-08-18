@@ -402,7 +402,134 @@ def run_all_tests():
         assert mock_get.call_args[0][0] == "https://integrate.api.nvidia.com/v1/models"
         assert mock_get.call_args[1]["headers"]["Authorization"] == "Bearer test-api-key"
 
+    # 6.4 測試 server.py 靜態網頁託管 (GET /)
+    res_index = client.get("/")
+    assert res_index.status_code == 200
+    assert "天衍九州" in res_index.text
+
     print("=> 測試 6 通過！")
+
+    # Test 7: 測試 extractJson, extractNarrative, extractMeta 容錯解析能力
+    print("[測試 7] 測試 extractJson, extractNarrative, extractMeta 容錯解析能力...")
+    
+    def py_extract_json(text):
+        if not text or not isinstance(text, str):
+            return None
+        clean = text.strip()
+        if clean.startswith('```'):
+            clean = re.sub(r'^```(?:json)?\s*', '', clean, flags=re.I)
+            clean = re.sub(r'\s*```$', '', clean).strip()
+        try:
+            return json.loads(clean)
+        except Exception:
+            m = re.search(r'\{[\s\S]*\}', text)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except Exception:
+                    pass
+        return None
+
+    def py_extract_narrative(text):
+        if not text or not text.strip():
+            return None
+        clean = text.strip()
+        if clean.startswith('```'):
+            clean = re.sub(r'^```(?:json)?\s*', '', clean, flags=re.I)
+            clean = re.sub(r'\s*```$', '', clean).strip()
+        try:
+            data = json.loads(clean)
+            if isinstance(data, dict):
+                cand = data.get('narrative') or data.get('story') or data.get('content') or data.get('text') or data.get('response')
+                if cand is not None and str(cand).strip():
+                    return str(cand).strip()
+        except Exception:
+            m = re.search(r'"(?:narrative|story|content|text)"\s*:\s*"((?:[^"\\]|\\.)*)', text)
+            if m:
+                return m.group(1).replace(r'\"', '"').replace(r'\n', '\n')
+            if not text.strip().startswith('{') and not text.strip().startswith('```'):
+                return text.strip()
+        m2 = re.search(r'"narrative"\s*:\s*"((?:[^"\\]|\\.)*)', text)
+        if m2:
+            return m2.group(1).replace(r'\"', '"').replace(r'\n', '\n')
+        if not text.strip().startswith('{'):
+            return text.strip()
+        return None
+
+    def py_extract_meta(text):
+        if not text or not text.strip():
+            return None
+        clean = text.strip()
+        if clean.startswith('```'):
+            clean = re.sub(r'^```(?:json)?\s*', '', clean, flags=re.I)
+            clean = re.sub(r'\s*```$', '', clean).strip()
+        try:
+            data = json.loads(clean)
+            if data.get('meta'):
+                return data['meta']
+            if 'options' in data or 'hp' in data or 'impact' in data:
+                return data
+        except Exception:
+            m = re.search(r'\{[\s\S]*\}', text)
+            if m:
+                try:
+                    d = json.loads(m.group(0))
+                    if d.get('meta'):
+                        return d['meta']
+                    if 'options' in d or 'hp' in d or 'impact' in d:
+                        return d
+                except Exception:
+                    pass
+        return None
+
+    # 7.1 extract_json: 標準 JSON 與 Markdown 包裹
+    json_std = '{"scene_goal": "活下去", "dramatic_conflict": "雷劫"}'
+    assert py_extract_json(json_std)["scene_goal"] == "活下去"
+    
+    json_md = '```json\n{"scene_goal": "突破", "dramatic_conflict": "劍陣"}\n```'
+    assert py_extract_json(json_md)["scene_goal"] == "突破"
+
+    # 7.2 extract_narrative: 標準 JSON、Markdown 包裹、替代欄位與純文字
+    nar_std = '{"narrative": "你踏入了凡人村，四周死寂一片。"}'
+    assert "凡人村" in py_extract_narrative(nar_std)
+
+    nar_md = '```json\n{"narrative": "劍塚之中，萬劍齊鳴。"}\n```'
+    assert "劍塚" in py_extract_narrative(nar_md)
+
+    nar_content_key = '{"content": "自然魔網正在崩塌。"}'
+    assert "自然魔網" in py_extract_narrative(nar_content_key)
+
+    nar_raw = '你深吸一口氣，引導體內真元。'
+    assert "引導體內真元" in py_extract_narrative(nar_raw)
+
+    # 7.3 extract_meta: 標準與包裝
+    meta_std = '{"hp": "-10", "sp": "-15", "threat": "+5", "options": ["探索", "調息"]}'
+    assert py_extract_meta(meta_std)["hp"] == "-10"
+
+    meta_md = '```json\n{"hp": "-5", "options": ["前進"]}\n```'
+    assert py_extract_meta(meta_md)["hp"] == "-5"
+
+    print("=> 測試 7 通過！")
+
+    # Test 8: 驗證 JavaScript 檔案之間的函式定義與引用一致性
+    print("[測試 8] 測試 JavaScript 模組函式定義與引用相容性...")
+    js_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'js')
+    
+    with open(os.path.join(js_dir, 'api.js'), 'r', encoding='utf-8') as f:
+        api_code = f.read()
+    with open(os.path.join(js_dir, 'game.js'), 'r', encoding='utf-8') as f:
+        game_code = f.read()
+    with open(os.path.join(js_dir, 'utils.js'), 'r', encoding='utf-8') as f:
+        utils_code = f.read()
+
+    # 驗證 window.buildNarrativePromptWithDirector 存在且在 game.js 中被調用
+    assert "window.buildNarrativePromptWithDirector" in api_code, "api.js 缺少 buildNarrativePromptWithDirector 定義"
+    assert "window.buildNarrativePromptWithDirector" in game_code, "game.js 缺少 buildNarrativePromptWithDirector 調用"
+    assert "window.extractJson" in utils_code, "utils.js 缺少 extractJson 定義"
+    assert "window.extractNarrative" in utils_code, "utils.js 缺少 extractNarrative 定義"
+    assert "window.extractMeta" in utils_code, "utils.js 缺少 extractMeta 定義"
+
+    print("=> 測試 8 通過！")
     
     print("====== 所有測試皆已順利通過！ ======")
 

@@ -1,11 +1,13 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 import requests
 import json
 import os
+from pathlib import Path
 
-app = FastAPI()
+app = FastAPI(title="天衍九州 AI 敘事伺服器")
 
 # 允許跨域請求
 app.add_middleware(
@@ -39,9 +41,11 @@ async def models_proxy(request: Request):
             try:
                 error_data = response.json()
                 return JSONResponse(status_code=response.status_code, content=error_data)
-            except:
+            except Exception:
                 raise HTTPException(status_code=response.status_code, detail=response.text)
         return response.json()
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Models proxy error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -80,7 +84,7 @@ async def chat_proxy(request: Request):
             try:
                 error_data = response.json()
                 return JSONResponse(status_code=response.status_code, content=error_data)
-            except:
+            except Exception:
                 raise HTTPException(status_code=response.status_code, detail=response.text)
 
         if body.get("stream"):
@@ -95,10 +99,19 @@ async def chat_proxy(request: Request):
             return StreamingResponse(generate(), media_type="text/event-stream")
         else:
             return response.json()
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Proxy error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# 掛載當前目錄作為靜態檔案服務 (放置在 API 路由之後)
+BASE_DIR = Path(__file__).resolve().parent
+app.mount("/", StaticFiles(directory=str(BASE_DIR), html=True), name="static")
+
 if __name__ == "__main__":
     import uvicorn
+    print("啟動天衍九州伺服器中...")
+    print("存取網址: http://127.0.0.1:4444")
     uvicorn.run(app, host="127.0.0.1", port=4444)
+
