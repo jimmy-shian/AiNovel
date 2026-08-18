@@ -83,7 +83,7 @@ async function init() {
 window.syncModelsFromEndpoint = async function(isManual = true) {
   const statusEl = document.getElementById('models-fetch-status');
   if (isManual && statusEl) {
-    statusEl.textContent = '⏳ 正在向端點查詢最新可用模型...';
+    statusEl.textContent = '⏳ 正在查詢最新可用模型 (自動容錯)...';
     statusEl.className = 'models-fetch-status loading';
   }
 
@@ -93,23 +93,33 @@ window.syncModelsFromEndpoint = async function(isManual = true) {
       const currentModel = window.selectors.modelSelect?.value || localStorage.getItem(window.SETTINGS.STORAGE_KEYS.selectedModel) || 'openai/gpt-oss-120b';
       window.populateModelList(models, currentModel);
       if (statusEl) {
-        statusEl.textContent = `✅ 成功同步 ${models.length} 個最新可用模型！`;
+        let endpointName = "代理端點";
+        if (window.state.lastModelEndpoint) {
+          if (window.state.lastModelEndpoint.includes('127.0.0.1') || window.state.lastModelEndpoint.includes('localhost')) {
+            endpointName = "本地伺服器 127.0.0.1:4444";
+          } else if (window.state.lastModelEndpoint.includes('workers.dev')) {
+            endpointName = "遠端 Cloudflare 代理";
+          } else if (window.state.lastModelEndpoint.includes('nvidia.com')) {
+            endpointName = "NVIDIA 原廠直連";
+          }
+        }
+        statusEl.textContent = `✅ 成功同步 ${models.length} 個最新模型（${endpointName}）`;
         statusEl.className = 'models-fetch-status success';
       }
     } else {
       if (isManual && statusEl) {
-        statusEl.textContent = '⚠️ 端點回傳空清單，已啟用系統預設推薦模型';
+        statusEl.textContent = '⚠️ 端點回傳空清單，已載入系統預設推薦模型';
         statusEl.className = 'models-fetch-status error';
       }
     }
   } catch (err) {
     if (isManual && statusEl) {
       const is404 = String(err.message).includes('404');
-      const isCors = String(err.message).includes('Failed to fetch');
+      const isCors = String(err.message).includes('Failed to fetch') || String(err.message).includes('NetworkError');
       if (is404) {
-        statusEl.textContent = '⚠️ 端點 404 (請重啟 server.py 或更新 Worker 轉發 /v1/models)';
+        statusEl.textContent = '⚠️ 端點 404 (請確認 server.py 運行中)';
       } else if (isCors) {
-        statusEl.textContent = '⚠️ CORS 阻擋 (請勾選「隱匿蹤跡」透過代理端點轉發)';
+        statusEl.textContent = '⚠️ CORS 阻擋 (請確認已啟動 python server.py 並勾選「隱匿蹤跡」)';
       } else {
         statusEl.textContent = `❌ 同步失敗: ${err.message}`;
       }

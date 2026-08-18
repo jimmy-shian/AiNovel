@@ -74,27 +74,55 @@ window.SETTINGS = {
 
 // 執行期設定 (以 getters 動態獲取)
 window.CONFIG = {
+  get isLocal() {
+    return window.location.hostname === 'localhost' ||
+           window.location.hostname === '127.0.0.1' ||
+           window.location.protocol === 'file:';
+  },
   get useProxy() {
-    return localStorage.getItem(window.SETTINGS.STORAGE_KEYS.useProxy) === 'true';
+    const saved = localStorage.getItem(window.SETTINGS.STORAGE_KEYS.useProxy);
+    // 預設為 true (因為瀏覽器端直連 NVIDIA API 必遭 CORS 阻擋)
+    return saved !== null ? saved === 'true' : true;
   },
   set useProxy(val) {
     localStorage.setItem(window.SETTINGS.STORAGE_KEYS.useProxy, val ? 'true' : 'false');
   },
   get proxyUrl() {
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    return isLocal
+    return this.isLocal
       ? window.SETTINGS.ENDPOINTS.localProxy
       : window.SETTINGS.ENDPOINTS.remoteProxy;
   },
   get modelsUrl() {
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     if (this.useProxy) {
-      return isLocal ? window.SETTINGS.ENDPOINTS.localModels : window.SETTINGS.ENDPOINTS.remoteModels;
+      return this.isLocal ? window.SETTINGS.ENDPOINTS.localModels : window.SETTINGS.ENDPOINTS.remoteModels;
     }
     return window.SETTINGS.ENDPOINTS.directModels;
   },
   get directUrl() {
     return window.SETTINGS.ENDPOINTS.direct;
+  },
+  get candidateModelUrls() {
+    const urls = [this.modelsUrl];
+    if (this.isLocal) {
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.localModels)) urls.push(window.SETTINGS.ENDPOINTS.localModels);
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteModels)) urls.push(window.SETTINGS.ENDPOINTS.remoteModels);
+    } else {
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteModels)) urls.push(window.SETTINGS.ENDPOINTS.remoteModels);
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.localModels)) urls.push(window.SETTINGS.ENDPOINTS.localModels);
+    }
+    if (!urls.includes(window.SETTINGS.ENDPOINTS.directModels)) urls.push(window.SETTINGS.ENDPOINTS.directModels);
+    return urls;
+  },
+  get candidateProxyUrls() {
+    const urls = [this.proxyUrl];
+    if (this.isLocal) {
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.localProxy)) urls.push(window.SETTINGS.ENDPOINTS.localProxy);
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteProxy)) urls.push(window.SETTINGS.ENDPOINTS.remoteProxy);
+    } else {
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteProxy)) urls.push(window.SETTINGS.ENDPOINTS.remoteProxy);
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.localProxy)) urls.push(window.SETTINGS.ENDPOINTS.localProxy);
+    }
+    return urls;
   }
 };
 

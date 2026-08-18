@@ -32,41 +32,82 @@ window.formatNarrative = function(text) {
   return formatted;
 };
 
-window.extractNarrative = function(text) {
-  if (!text.trim()) return null;
+window.extractJson = function(text) {
+  if (!text || typeof text !== 'string') return null;
+  let clean = text.trim();
+  if (clean.startsWith('```')) {
+    clean = clean.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  }
   try {
-    const data = JSON.parse(text);
-    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
-      console.warn('[extractNarrative] 模型返回空 JSON 物件');
-      return null;
-    }
-    if (data.narrative === undefined || data.narrative === null) {
-      console.warn('[extractNarrative] JSON 中缺少 narrative 欄位');
-      return null;
-    }
-    if (typeof data.narrative !== 'string' || !data.narrative.trim()) {
-      console.warn('[extractNarrative] narrative 欄位為空');
-      return null;
-    }
-    return window.cleanText(data.narrative);
+    return JSON.parse(clean);
   } catch (e) {
-    const match = text.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)/);
+    const match = text.match(/\{[\s\S]*\}/);
     if (match) {
-      return window.cleanText(match[1]);
+      try {
+        return JSON.parse(match[0]);
+      } catch (_) {}
     }
-    if (!text.trim().startsWith('{')) return window.cleanText(text);
     return null;
   }
 };
 
-window.extractMeta = function(text) {
-  if (!text.trim()) return null;
+window.extractNarrative = function(text) {
+  if (!text || !text.trim()) return null;
+  
+  let clean = text.trim();
+  if (clean.startsWith('```')) {
+    clean = clean.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  }
+
+  // 1. 嘗試完整 JSON 解析
   try {
-    const data = JSON.parse(text);
+    const data = JSON.parse(clean);
+    if (data && typeof data === 'object') {
+      const candidate = data.narrative ?? data.story ?? data.content ?? data.text ?? data.response;
+      if (candidate !== undefined && candidate !== null && String(candidate).trim()) {
+        return window.cleanText(String(candidate));
+      }
+    }
+  } catch (e) {
+    // 2. 串流中或非完整 JSON 正則匹配
+    const match = text.match(/"(?:narrative|story|content|text)"\s*:\s*"((?:[^"\\]|\\.)*)/);
+    if (match) {
+      return window.cleanText(match[1]);
+    }
+    // 3. 若非 JSON 格式，直接視為純文字故事
+    if (!text.trim().startsWith('{') && !text.trim().startsWith('```')) {
+      return window.cleanText(text);
+    }
+  }
+
+  // 4. 備用正則匹配
+  const match = text.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)/);
+  if (match) return window.cleanText(match[1]);
+
+  if (!text.trim().startsWith('{')) return window.cleanText(text);
+  return null;
+};
+
+window.extractMeta = function(text) {
+  if (!text || !text.trim()) return null;
+  try {
+    let clean = text.trim();
+    if (clean.startsWith('```')) {
+      clean = clean.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    }
+    const data = JSON.parse(clean);
     if (data.meta) return data.meta;
-    if (data.options || data.hp !== undefined) return data;
+    if (data.options || data.hp !== undefined || data.impact !== undefined) return data;
     return null;
   } catch (e) {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const data = JSON.parse(jsonMatch[0]);
+        if (data.meta) return data.meta;
+        if (data.options || data.hp !== undefined || data.impact !== undefined) return data;
+      } catch (_) {}
+    }
     return null;
   }
 };

@@ -145,9 +145,15 @@ body {
   transition: var(--transition);
 }
 
-.secondary-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-main);
+.label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.label-row label {
+  margin-bottom: 0;
 }
 
 .sync-models-btn {

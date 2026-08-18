@@ -55,149 +55,202 @@ window.buildChatPayload = function(model, systemPrompt, userContent, enableThink
  */
 window.streamAPICall = async function(systemPrompt, userContent, onDelta, enableThinking = true) {
   const apiKey = window.selectors.apiKey.value.trim();
-  const url = window.CONFIG.useProxy ? window.CONFIG.proxyUrl : window.CONFIG.directUrl;
   const model = window.selectors.modelSelect.value;
-
   const finalSystemPrompt = window.buildSystemPromptForModel(model, systemPrompt, enableThinking);
   const payload = window.buildChatPayload(model, finalSystemPrompt, userContent, enableThinking);
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  // 嘗試端點清單（若啟用代理則優先使用候選代理端點，否則嘗試直連）
+  const candidateUrls = window.CONFIG.useProxy
+    ? (window.CONFIG.candidateProxyUrls || [window.CONFIG.proxyUrl])
+    : [window.CONFIG.directUrl, ...(window.CONFIG.candidateProxyUrls || [])];
 
-  if (!response.ok) throw new Error(`API 請求失敗 (${response.status})`);
+  let lastError = null;
+  for (const url of candidateUrls) {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
 
-  // 非串流模式
-  if (!payload.stream) {
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message || "API 內部錯誤");
-    const content = data.choices?.[0]?.message?.content || "";
-    if (onDelta && content) onDelta(content, content);
-    return content;
-  }
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      });
 
-  // 串流模式
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let fullText = "";
+      if (!response.ok) {
+        let errDetail = `HTTP ${response.status}`;
+        try {
+          const errJson = await response.json();
+          if (errJson?.error?.message) errDetail = errJson.error.message;
+          else if (errJson?.detail) errDetail = errJson.detail;
+        } catch (_) {}
+        throw new Error(`API 請求失敗 (${errDetail})`);
+      }
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value, { stream: true });
-    for (const line of chunk.split('\n')) {
-      const trimmedLine = line.trim();
-      if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
-      const dataStr = trimmedLine.slice(6);
-      if (dataStr === '[DONE]') break;
-      try {
-        const data = JSON.parse(dataStr);
+      // 非串流模式
+      if (!payload.stream) {
+        const data = await response.json();
         if (data.error) throw new Error(data.error.message || "API 內部錯誤");
-        const delta = data.choices?.[0]?.delta?.content || "";
-        if (delta) {
-          fullText += delta;
-          if (onDelta) onDelta(delta, fullText);
-        }
-      } catch (e) {
-        if (e.message !== "JSON.parse error" && !e.name?.includes("SyntaxError")) {
-          throw e;
+        const content = data.choices?.[0]?.message?.content || "";
+        if (onDelta && content) onDelta(content, content);
+        return content;
+      }
+
+      // 串流模式
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split('\n')) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+          const dataStr = trimmedLine.slice(6);
+          if (dataStr === '[DONE]') break;
+          try {
+            const data = JSON.parse(dataStr);
+            if (data.error) throw new Error(data.error.message || "API 內部錯誤");
+            const delta = data.choices?.[0]?.delta?.content || "";
+            if (delta) {
+              fullText += delta;
+              if (onDelta) onDelta(delta, fullText);
+            }
+          } catch (e) {
+            if (e.message !== "JSON.parse error" && !e.name?.includes("SyntaxError")) {
+              throw e;
+            }
+          }
         }
       }
+
+      return fullText;
+    } catch (err) {
+      console.warn(`[streamAPICall] 端點 ${url} 呼叫失敗:`, err.message);
+      lastError = err;
+      // 若多個端點可用則繼續嘗試下一個
+      if (candidateUrls.length > 1) continue;
+      break;
     }
   }
 
-  return fullText;
+  throw lastError || new Error("無法連接任何 AI 推理端點，請確認 server.py 是否啟動或網路正常。");
 };
 
 window.buildDirectorPrompt = function(action, isFirstMove) {
   const g = window.state.game;
-  const scene = window.state.world.scenes[g.scene];
+  const scene = window.state.world?.scenes?.[g.scene] || {};
 
-  let content = `【世界規則】\n${(window.state.world.world_rules || []).join('\n')}\n主線謎團：${window.state.world.main_mystery || ''}`;
+  let content = `【世界規則】\n${(window.state.world?.world_rules || []).join('\n')}\n主線謎團：${window.state.world?.main_mystery || window.state.world?.coreMystery?.truthHint || ''}`;
 
   content += `\n\n【當前階段 (Arc)】
-目標：${g.current_arc?.goal || ''}
-威脅：${g.current_arc?.villain || ''}
-壓力：${g.current_arc?.pressure || ''}`;
+主線：${window.state.world?.main_arc || window.state.game?.current_arc?.goal || ''}
+支線：${window.state.world?.sub_arc || ''}`;
 
-  content += `\n\n【劇情狀態 (Flags)】
-${JSON.stringify(g.story_flags || {})}`;
+  content += `\n\n【角色當前狀態】
+位置：${g.scene}（${scene.title || g.scene}）
+生命(HP)：${g.player.hp} | 靈力(SP)：${g.player.sp} | 業力(Threat)：${g.player.threat}`;
 
-  content += `\n\n【當前場景：${scene?.title || g.scene}】
-核心目標：${scene?.scene_goal || ''}
-主要衝突：${scene?.scene_conflict || ''}
-隱藏伏筆：${scene?.scene_twist || ''}
-失敗後果：${scene?.scene_fail_state || ''}`;
+  if (g.player.abilities) {
+    const abList = Object.entries(g.player.abilities)
+      .map(([k, v]) => typeof v === 'object' && v !== null ? `${k}:${v.val}/${v.max}` : `${k}:${v}`)
+      .join('、');
+    content += `\n能力屬性：${abList}`;
+  }
+
+  if (g.player.inventory?.length > 0) {
+    content += `\n行囊物品：${g.player.inventory.join('、')}`;
+  }
+
+  if (g.player.relationships && Object.keys(g.player.relationships).length > 0) {
+    const relList = Object.entries(g.player.relationships)
+      .map(([k, v]) => `${k}(好感:${v.favorability})`)
+      .join('、');
+    content += `\n人物關係：${relList}`;
+  }
+
+  if (g.history && g.history.length > 0) {
+    content += `\n\n【前情提要（最近記憶）】`;
+    const recent = g.history.slice(-window.state.historyLimit);
+    recent.forEach((h, i) => {
+      content += `\n第 ${i + 1} 輪 - 玩家：${h.action || '（開局）'}\n世界反饋：${h.result?.narrative || ''}`;
+    });
+  }
+
+  content += `\n\n【本輪玩家輸入】\n${action || '（開局第一步，請描繪開場並給予初始指引）'}`;
+  return content;
+};
+
+window.buildNarrativePromptWithDirector = function(action, directorPlan, isFirstMove) {
+  const g = window.state.game;
+  const scene = window.state.world?.scenes?.[g.scene] || {};
+
+  let content = `【本輪玩家行動】\n${isFirstMove ? '（開局第一步，請描繪開場並給予初始指引）' : (action || '觀察四周')}`;
+
+  if (directorPlan) {
+    content += `\n\n【導演劇本大綱】
+核心目標：${directorPlan.scene_goal || directorPlan.narrative_outline || '順應玩家行動展開故事'}
+戲劇衝突：${directorPlan.dramatic_conflict || directorPlan.tension_direction || '突發異象或威脅阻礙'}
+關鍵線索：${directorPlan.reveal || directorPlan.logical_consistency || '未知的因果線索'}
+情緒基調：${directorPlan.emotional_tone || '神秘緊張'}
+懸念鉤子：${directorPlan.ending_hook || '隱藏在暗處的異動'}`;
+  }
+
+  content += `\n\n【當前場景資訊】
+名稱：${scene.title || g.scene}
+場景氛圍：${scene.location_core || scene.description || '四周充滿未知與危險'}`;
 
   if (scene?.npcs?.length > 0) {
-    content += `\n登場人物：\n${scene.npcs.map(n => `- ${n.name}: 目標[${n.goal}], 恐懼[${n.fear}], 關係[${n.relationship}]`).join('\n')}`;
+    const npcText = scene.npcs.map(npc => {
+      if (typeof npc === 'object' && npc !== null) {
+        let desc = npc.name || '神秘人物';
+        if (npc.relationship) desc += `（立場:${npc.relationship}）`;
+        if (npc.speaking_style) desc += `（語氣:${npc.speaking_style}）`;
+        return desc;
+      }
+      return String(npc);
+    }).join('、');
+    content += `\n在場人物：${npcText}`;
   }
 
-  content += `\n\n【玩家狀態】
-  氣血 ${g.player.hp}/100, 靈力 ${g.player.sp}/100, 業力 ${g.player.threat}/100`;
-
-  if (g.player.abilities && Object.keys(g.player.abilities).length > 0) {
-    content += `\n能力階位：\n${Object.entries(g.player.abilities).map(([n, v]) => {
-      const val = typeof v === 'object' && v !== null ? v.val : v;
-      const tierInfo = window.getStatTier ? window.getStatTier(val) : { name: '凡胎' };
-      if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max}, 階位: ${tierInfo.name})`;
-      return `- ${n}: ${v} (階位: ${tierInfo.name})`;
-    }).join('\n')}`;
+  if (scene?.scene_exit?.length > 0) {
+    content += `\n可遷移區域：${scene.scene_exit.join('、')}`;
   }
 
-  // 檢查玩家本次行動是否帶有門檻或消耗要求
-  if (!isFirstMove && window.parseOptionRequirement) {
-    const req = window.parseOptionRequirement(action, g.player);
-    if (req.type === 'threshold') {
-      content += `\n\n【本次行動門檻檢定】
-- 檢定屬性：${req.stat}，要求門檻：≥${req.required}，玩家當前值：${req.current}
-- 判定結果：${req.eligible ? '檢定成功（順利發揮其境界之威能）' : '檢定失敗/強行施展（必須付出代價或引發反噬後果）'}`;
-    } else if (req.type === 'cost') {
-      content += `\n\n【本次行動消耗檢定】
-- 消耗項目：${req.cost} ${req.costType}，玩家當前存量：${req.current}
-- 判定結果：${req.eligible ? '真元充足，招式成功施展' : '資源透支，招式威力受挫並引發負擔'}`;
-    }
+  content += `\n\n【角色當前狀態】
+生命(HP)：${g.player.hp} | 靈力(SP)：${g.player.sp} | 業力(Threat)：${g.player.threat}`;
+
+  if (g.player.abilities) {
+    const abList = Object.entries(g.player.abilities)
+      .map(([k, v]) => {
+        const val = typeof v === 'object' && v !== null ? v.val : v;
+        const tier = window.getStatTier ? window.getStatTier(val).name : '凡胎';
+        return typeof v === 'object' && v !== null ? `${k}:${v.val}/${v.max}（${tier}）` : `${k}:${v}（${tier}）`;
+      })
+      .join('、');
+    content += `\n能力屬性：${abList}`;
   }
 
-  content += `\n\n【前情提要（最近兩輪的經歷，必須順著其脈絡向前推進，且嚴禁重跑相同的情節）】
-${g.history?.slice(-2).map(h => `- 行動: ${h.action}\n- 結果: ${h.result?.narrative.slice(0, 150)}...`).join('\n') || '無'}`;
-
-  if (action === "繼續敘事...") {
-    content += `\n\n【當前任務】
-故事在精彩處截斷了，請繼續接續上文進行敘事，保持張力並給出本段的小結或新的轉折。`;
+  if (g.history && g.history.length > 0) {
+    content += `\n\n【前情提要（最近記憶）】`;
+    const recent = g.history.slice(-window.state.historyLimit);
+    recent.forEach((h, i) => {
+      content += `\n第 ${i + 1} 輪 - 玩家：${h.action || '（開局）'}\n世界反饋：${h.result?.narrative || ''}`;
+    });
   }
-
-  content += `\n\n【玩家當前行動】\n${isFirstMove ? '正式開啟這場逆天之旅的第一幕。' : (action === "繼續敘事..." ? "（接續上文）" : action)}`;
 
   return content;
 };
 
-window.buildNarrativePromptWithDirector = function(action, plan, isFirstMove) {
-  const g = window.state.game;
-  const scene = window.state.world.scenes[g.scene];
-
-  return `【導演規劃 (必須嚴格執行，推動故事實質前進，拒絕重複描寫)】
-1. 本段目標：${plan.scene_goal}
-2. 戲劇衝突：${plan.dramatic_conflict}
-3. 情報揭露：${plan.reveal}
-4. 結尾鉤子：${plan.ending_hook}
-
-【場景細節 (僅供參考素材)】
-- 地點：${scene?.title || g.scene}
-- 環境：${scene?.location_core || ''}
-- 人物：${(scene?.npcs || []).map(n => `${n.name}(說話風格:${n.speaking_style})`).join(', ')}
-
-【玩家行動】
-${isFirstMove ? '正式開啟這場逆天之旅的第一幕。' : action}
-
-請開始撰寫敘事：`;
-};
+// 保持向下相容
+window.buildNarrativePrompt = window.buildNarrativePromptWithDirector;
 
 window.buildMetaPromptContext = function(action) {
   const g = window.state.game;
-  const scene = window.state.world.scenes[g.scene];
+  const scene = window.state.world?.scenes?.[g.scene] || {};
 
   let content = `【當前情勢】
 場景：${scene?.title || g.scene}
@@ -211,7 +264,7 @@ window.buildMetaPromptContext = function(action) {
 ${Object.entries(g.player.abilities || {}).map(([n, v]) => {
     const val = typeof v === 'object' && v !== null ? v.val : v;
     const tierInfo = window.getStatTier ? window.getStatTier(val) : { name: '凡胎' };
-    if (typeof v === 'object') return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max}, 階位: ${tierInfo.name})`;
+    if (typeof v === 'object' && v !== null) return `- ${n}: ${v.val} (範圍: ${v.min}-${v.max}, 階位: ${tierInfo.name})`;
     return `- ${n}: ${v} (階位: ${tierInfo.name})`;
   }).join('\n')}`;
 
@@ -232,78 +285,101 @@ ${Object.entries(g.player.abilities || {}).map(([n, v]) => {
 };
 
 /**
- * 從端點動態獲取可用模型清單
+ * 從端點動態獲取可用模型清單 (支援多端點智慧容錯回退)
  */
 window.fetchDynamicModels = async function() {
   const apiKey = window.selectors.apiKey?.value?.trim() || localStorage.getItem(window.SETTINGS.STORAGE_KEYS.apiKey) || '';
-  const url = window.CONFIG.modelsUrl;
+  const candidateUrls = window.CONFIG.candidateModelUrls || [window.CONFIG.modelsUrl];
+
   const headers = { 'Accept': 'application/json' };
   if (apiKey) {
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
 
-  try {
-    const res = await fetch(url, { headers });
-    if (!res.ok) {
-      throw new Error(`API 回傳狀態碼: ${res.status}`);
-    }
-    const data = await res.json();
-    const modelIds = [];
+  let lastError = null;
 
-    // 1. OpenAI / NVIDIA NIM 標準格式：{ data: [{ id: "..." }] }
-    if (data && Array.isArray(data.data)) {
-      data.data.forEach(item => {
-        if (typeof item === 'object' && item && item.id) {
-          modelIds.push(String(item.id));
-        } else if (typeof item === 'string') {
-          modelIds.push(item);
-        }
-      });
-    }
-    // 2. Ollama 格式：{ models: [{ name: "..." }] }
-    else if (data && Array.isArray(data.models)) {
-      data.models.forEach(item => {
-        const id = item.name || item.model || item.id;
-        if (id) modelIds.push(String(id));
-      });
-    }
-    // 3. 純陣列格式：[{ id: "..." }] 或 ["model-a", "model-b"]
-    else if (Array.isArray(data)) {
-      data.forEach(item => {
-        if (typeof item === 'object' && item && item.id) modelIds.push(String(item.id));
-        else if (typeof item === 'string') modelIds.push(item);
-      });
-    }
+  for (const url of candidateUrls) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-    if (modelIds.length > 0) {
-      // 依小說推演推薦順序排序（優先排 gpt-oss、deepseek、qwen、llama、nemotron）
-      modelIds.sort((a, b) => {
-        const score = (name) => {
-          const lower = name.toLowerCase();
-          if (lower.includes('gpt-oss-120b')) return -20;
-          if (lower.includes('gpt-oss')) return -18;
-          if (lower.includes('deepseek-r1')) return -16;
-          if (lower.includes('deepseek')) return -14;
-          if (lower.includes('qwen3.5')) return -12;
-          if (lower.includes('qwen')) return -10;
-          if (lower.includes('llama-3.3')) return -8;
-          if (lower.includes('llama')) return -6;
-          if (lower.includes('nemotron')) return -4;
-          return 0;
-        };
-        const diff = score(a) - score(b);
-        if (diff !== 0) return diff;
-        return a.localeCompare(b);
+      const res = await fetch(url, {
+        headers,
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
-      // 快取至 localStorage
-      localStorage.setItem(window.SETTINGS.STORAGE_KEYS.cachedModels, JSON.stringify(modelIds));
-      return modelIds;
+      if (!res.ok) {
+        throw new Error(`API 回傳狀態碼: ${res.status}`);
+      }
+
+      const data = await res.json();
+      const rawModelIds = [];
+
+      // 1. OpenAI / NVIDIA NIM 標準格式：{ data: [{ id: "..." }] }
+      if (data && Array.isArray(data.data)) {
+        data.data.forEach(item => {
+          if (typeof item === 'object' && item && item.id) {
+            rawModelIds.push(String(item.id));
+          } else if (typeof item === 'string') {
+            rawModelIds.push(item);
+          }
+        });
+      }
+      // 2. Ollama 格式：{ models: [{ name: "..." }] }
+      else if (data && Array.isArray(data.models)) {
+        data.models.forEach(item => {
+          const id = item.name || item.model || item.id;
+          if (id) rawModelIds.push(String(id));
+        });
+      }
+      // 3. 純陣列格式：[{ id: "..." }] 或 ["model-a", "model-b"]
+      else if (Array.isArray(data)) {
+        data.forEach(item => {
+          if (typeof item === 'object' && item && item.id) rawModelIds.push(String(item.id));
+          else if (typeof item === 'string') rawModelIds.push(item);
+        });
+      }
+
+      const modelIds = [...new Set(rawModelIds.filter(id => Boolean(id && typeof id === 'string')))];
+
+      if (modelIds.length > 0) {
+        // 依小說推演推薦順序排序（優先排 gpt-oss、deepseek、qwen、llama、nemotron）
+        modelIds.sort((a, b) => {
+          const score = (name) => {
+            const lower = name.toLowerCase();
+            if (lower.includes('gpt-oss-120b')) return -20;
+            if (lower.includes('gpt-oss')) return -18;
+            if (lower.includes('deepseek-r1')) return -16;
+            if (lower.includes('deepseek')) return -14;
+            if (lower.includes('qwen3.5')) return -12;
+            if (lower.includes('qwen')) return -10;
+            if (lower.includes('llama-3.3')) return -8;
+            if (lower.includes('llama')) return -6;
+            if (lower.includes('nemotron')) return -4;
+            return 0;
+          };
+          const diff = score(a) - score(b);
+          if (diff !== 0) return diff;
+          return a.localeCompare(b);
+        });
+
+        // 記錄最後成功擷取的端點網址
+        window.state.lastModelEndpoint = url;
+        // 快取至 localStorage
+        localStorage.setItem(window.SETTINGS.STORAGE_KEYS.cachedModels, JSON.stringify(modelIds));
+        return modelIds;
+      }
+    } catch (err) {
+      console.warn(`[fetchDynamicModels] 端點 ${url} 連線失敗:`, err.message);
+      lastError = err;
     }
-    return null;
-  } catch (err) {
-    console.warn('[fetchDynamicModels] 動態獲取模型失敗:', err.message);
-    throw err;
   }
+
+  if (lastError) {
+    throw lastError;
+  }
+  return null;
 };
+
 

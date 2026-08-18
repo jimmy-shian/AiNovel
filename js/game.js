@@ -187,14 +187,18 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
   try {
     const directorUserContent = window.buildDirectorPrompt(action, isFirstMove);
     const directorText = await window.streamAPICall(window.DIRECTOR_PROMPT, directorUserContent, null, true);
-    directorPlan = JSON.parse(directorText);
+    directorPlan = window.extractJson ? window.extractJson(directorText) : JSON.parse(directorText);
+    if (!directorPlan) {
+      throw new Error("無法解析導演劇本 JSON");
+    }
     console.log("[Phase 0] Director Plan:", directorPlan);
   } catch (err) {
-    console.error("[Phase 0] Director Phase Failed:", err);
+    console.warn("[Phase 0] Director Phase Failed (使用預設劇本):", err.message);
     directorPlan = {
       scene_goal: "活下去並探索真相",
       dramatic_conflict: "未知的壓迫感與環境威脅",
       reveal: "此地的空間結構正在發生微小坍塌",
+      emotional_tone: "緊張懸疑",
       ending_hook: "陰影中似乎有視線在注視著你"
     };
   }
@@ -303,8 +307,8 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
     sp: window.parseDeltaNumber(meta.sp, window.state.game.player.sp),
     threat: window.parseDeltaNumber(meta.threat, window.state.game.player.threat),
     scene: (meta.scene && meta.scene !== 'null') ? meta.scene : null,
-    new_abilities: window.parsePairs(meta.new_ability),
-    update_abilities: window.parsePairs(meta.upd_ability)
+    new_abilities: window.parsePairs(meta.new_ability || meta.new_abilities),
+    update_abilities: window.parsePairs(meta.upd_ability || meta.update_abilities || meta.upd_abilities)
   };
 
   const suggested_options = meta.options || [];
