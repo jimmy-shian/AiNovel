@@ -145,25 +145,33 @@ window.splitMetaBlock = function(text) {
 };
 
 /**
- * 數值變動智慧型解析器 (支援絕對值與相對增減值)
+ * 數值變動解析器 (相容舊格式；新管線請用 validators.js 的 parseDeltaNumberStrict)
+ * 相容："+10"/"-5" 相對增量；"90/100" 絕對值；裸 "90" 視為絕對值（已棄用，歧義來源）。
+ * 新契約要求 LLM 一律回顯式 +/- 或 A/B 格式；裸數字由 validator 拒收，避免「20 是剩20還是扣20」。
  */
 window.parseDeltaNumber = function(raw, current) {
   if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    // 數字型裸值：向下相容視為絕對值
+    return raw - current;
+  }
   const str = String(raw).trim();
-  
+  if (!str || /^(null|none|無|nan)$/i.test(str)) return undefined;
+
   // 支援 XX/TotalLimit 格式，例如 "90/100" -> 絕對值 90
   if (str.includes('/')) {
     const val = Number(str.split('/')[0]);
     return Number.isFinite(val) ? val - current : undefined;
   }
-  
+
   // 支援帶有正負號的相對增量，例如 "+10" 或 "-5"
   if (str.startsWith('+') || str.startsWith('-')) {
     const v = Number(str);
     return Number.isFinite(v) ? v : undefined;
   }
-  
+
   // 純數字且無正負號，視為絕對值（新數值），轉換成相對於當前的增量 delta
+  // 注意：此分支為歧義根源，保留僅為相容舊模型輸出；新契約已要求顯式符號。
   const v = Number(str);
   return Number.isFinite(v) ? v - current : undefined;
 };
@@ -175,7 +183,26 @@ window.parseDeltaNumber = function(raw, current) {
 window.parsePairs = function(raw) {
   const out = {};
   if (!raw || /^(none|無|null|nan)$/i.test(String(raw).trim())) return out;
-  if (typeof raw === 'object') return raw;
+  // 物件路徑正規化：統一為 { isDelta, val, min?, max? }，消除「{天眼:5} 是絕對5還是+5」分歧
+  // 契約：物件數字型且無 isDelta 標記 → 視為絕對值（isDelta:false），由 applyImpact 做絕對賦值
+  if (typeof raw === 'object') {
+    Object.entries(raw).forEach(([k, v]) => {
+      if (v !== null && typeof v === 'object' && ('val' in v)) {
+        const num = Number(v.val);
+        if (!Number.isFinite(num)) return;
+        out[k] = {
+          isDelta: v.isDelta === true,
+          val: num,
+          ...(v.min !== undefined ? { min: Number(v.min) } : {}),
+          ...(v.max !== undefined ? { max: Number(v.max) } : {}),
+        };
+      } else {
+        const num = Number(v);
+        if (k && Number.isFinite(num)) out[k] = { isDelta: false, val: num };
+      }
+    });
+    return out;
+  }
   const parts = String(raw).split(/[;；]/).map(s => s.trim()).filter(Boolean);
   for (const part of parts) {
     const eq = part.indexOf('=');
@@ -226,11 +253,33 @@ window.createTypewriter = function(el, scrollContainer) {
   let fullContent = "";
   let timer = null;
   let isDone = false;
+  let reducedMotion = false;
+  try {
+    reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch (_) {}
+
+  const flushAll = () => {
+    if (!queue && !fullContent) return;
+    fullContent += queue;
+    queue = "";
+    try {
+      el.innerHTML = marked.parse(window.formatNarrative(fullContent));
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    } catch (_) {}
+  };
 
   const type = () => {
+    if (reducedMotion) {
+      // 無障礙降級：直接全量渲染，不逐字動畫
+      flushAll();
+      if (!isDone) timer = setTimeout(type, 120);
+      else timer = null;
+      return;
+    }
     if (queue.length > 0 || !isDone) {
       if (queue.length > 0) {
-        const batchSize = 1;
+        // 流暢度：每 tick 3 字（原 1 字需 30s/400字，現 ~10s），仍保留打字感
+        const batchSize = 3;
         const chars = queue.substring(0, batchSize);
         queue = queue.substring(batchSize);
         fullContent += chars;
@@ -281,12 +330,20 @@ window.loadFromStorage = function() {
   try {
     const key = window.getGameSaveKey();
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    // schema v2 斷代：舊存檔視為失效，交由上層重開（使用者已確認可斷代）
+    if (window.isSaveCompatible && !window.isSaveCompatible(data)) {
+      console.warn('[save] 舊版本存檔已失效（schema mismatch），將重新開局。');
+      return null;
+    }
+    return data;
   } catch (e) { return null; }
 };
 
 window.saveToStorage = function() {
   const key = window.getGameSaveKey();
+  if (window.stampSaveSchema) window.stampSaveSchema(window.state.game);
   localStorage.setItem(key, JSON.stringify(window.state.game));
 };
 

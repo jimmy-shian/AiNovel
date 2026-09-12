@@ -67,6 +67,14 @@ async function init() {
     }
   } else {
     window.state.game = JSON.parse(JSON.stringify(window.state.world.startingState));
+    if (window.stampSaveSchema) window.stampSaveSchema(window.state.game);
+    if (saved === null) {
+      try {
+        const probeKey = window.getGameSaveKey ? window.getGameSaveKey() : null;
+        const rawProbe = probeKey ? localStorage.getItem(probeKey) : null;
+        if (rawProbe) window.appendStory('系統：偵測到舊版本命錄，已封存並開啟新局（v1.5 存檔斷代）。', 'system');
+      } catch (_) {}
+    }
     window.appendStory('系統：等待鏈接中... 請在設置中輸入 API Key 並點擊儲存。', 'system');
   }
 
