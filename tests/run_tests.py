@@ -262,6 +262,11 @@ def run_all_tests():
         assert "階位" in prompts['director'] or "門檻" in prompts['director'], f"故事 {story_id} director 缺少階位/門檻指引"
         assert "窺徑" in prompts['narrative'] or "境界" in prompts['narrative'], f"故事 {story_id} narrative 缺少境界描繪指引"
         assert "門檻" in prompts['meta'] or "消耗" in prompts['meta'], f"故事 {story_id} meta 缺少門檻/消耗規範"
+
+        # v1.5 輸出契約（2-call 管線：七欄故事 JSON + 顯式增量 + 場景key白名單）
+        assert "輸出契約 v1.5" in prompts['narrative'], f"故事 {story_id} narrative 缺少輸出契約"
+        assert "scene_hint" in prompts['narrative'], f"故事 {story_id} narrative 缺少 scene_hint 規範"
+        assert "數據契約 v1.5" in prompts['meta'], f"故事 {story_id} meta 缺少數據契約"
     
     print("=> 測試 3 通過！")
 
@@ -530,7 +535,29 @@ def run_all_tests():
     assert "window.extractMeta" in utils_code, "utils.js 缺少 extractMeta 定義"
 
     print("=> 測試 8 通過！")
-    
+
+    # Test 9: v1.5 2-call 管線與新模組契約
+    print("[測試 9] 測試 2-call 管線與新模組契約...")
+    with open(os.path.join(js_dir, 'config.js'), 'r', encoding='utf-8') as f:
+        config_code = f.read()
+    with open(os.path.join(js_dir, 'story-bible.js'), 'r', encoding='utf-8') as f:
+        bible_code = f.read()
+    with open(os.path.join(js_dir, 'validators.js'), 'r', encoding='utf-8') as f:
+        validators_code = f.read()
+    with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'index.html'), 'r', encoding='utf-8') as f:
+        html_code = f.read()
+
+    assert "window.buildUnifiedStoryPrompt" in api_code, "api.js 缺少 buildUnifiedStoryPrompt"
+    assert "window.buildStrictMetaContext" in api_code, "api.js 缺少 buildStrictMetaContext"
+    assert "window.splitHistoryMemory" in bible_code, "story-bible.js 缺少 splitHistoryMemory"
+    assert "window.validatePOV" in validators_code, "validators.js 缺少 validatePOV"
+    assert "window.normalizeSceneKey" in validators_code, "validators.js 缺少 normalizeSceneKey"
+    assert "max_tokens: 131072" not in config_code and "max_tokens:131072" not in config_code, "config 仍含異常 max_tokens"
+    assert "js/story-bible.js" in html_code and "js/validators.js" in html_code, "index.html 未掛載新模組"
+    assert "validateStrictMeta" in game_code, "game.js 未接入嚴格 Meta 校驗"
+
+    print("=> 測試 9 通過！")
+
     print("====== 所有測試皆已順利通過！ ======")
 
 if __name__ == '__main__':

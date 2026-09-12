@@ -1,153 +1,42 @@
-# Cloudflare Worker 代理腳本 (天衍九州)
+# Cloudflare Worker 部署指南
 
-本專案之 Cloudflare Worker 代理服務程式碼，提供 `/v1/chat/completions` (劇情推演) 與 `/v1/models` (實時模型清單) 的跨域代理轉發與 CORS 標頭封裝。
+線上版（GitHub Pages，HTTPS）無法直連本地代理或 NVIDIA API，需經 HTTPS Worker 轉發以解決 CORS。
 
-```javascript
-/**
- * Cloudflare Worker - NVIDIA NIM API 代理轉發服務 (天衍九州)
- * 支援:
- * - GET  /v1/models          (實時動態模型清單)
- * - POST /v1/chat/completions (劇情推演對話 / SSE 串流轉發)
- * - OPTIONS *                (CORS 預檢)
- */
+> 原始碼唯一來源為 `cloudflare_worker.js`，本文件不再複製程式碼。改 Worker 請只改該檔。
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept",
-  "Access-Control-Max-Age": "86400",
-};
+## 端點
 
-export default {
-  async fetch(request, env) {
-    // ✅ 1. CORS 預檢請求處理
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: CORS_HEADERS,
-      });
-    }
+| 方法 | 路徑 | 用途 |
+| --- | --- | --- |
+| `GET` | `/` | 健康檢查頁 |
+| `GET` | `/v1/models` | 轉發至 NVIDIA，取得可用模型清單 |
+| `POST` | `/v1/chat/completions` | 轉發劇情推演（含 SSE 串流） |
+| `OPTIONS` | `*` | CORS 預檢 |
 
-    const url = new URL(request.url);
+轉發時僅透傳 `Authorization` / `Content-Type` / `Accept`，其餘 header 不轉發。
 
-    // ✅ 2. 根目錄狀態檢查畫面
-    if (url.pathname === "/") {
-      return new Response(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <title>天衍九州 AI Novel 代理服務</title>
-        </head>
-        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; line-height: 1.6; background: #121A12; color: #FDFBF7;">
-          <h1 style="color: #e2c080;">天機代理 (Cloudflare Worker) 運作正常 ⚡</h1>
-          <p>已支援端點：</p>
-          <ul>
-            <li><code>GET /v1/models</code>: 實時查詢 NVIDIA NIM 可用模型清單</li>
-            <li><code>POST /v1/chat/completions</code>: 劇情推演對話與 SSE 串流生成</li>
-          </ul>
-        </body>
-        </html>
-      `, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          ...CORS_HEADERS
-        }
-      });
-    }
+## 部署
 
-    // ✅ 3. 動態模型清單轉發 (GET /v1/models)
-    if (url.pathname === "/v1/models") {
-      if (request.method !== "GET") {
-        return new Response(JSON.stringify({ error: { message: "Method Not Allowed" } }), {
-          status: 405,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS }
-        });
-      }
+1. 登入 Cloudflare Dashboard → **Workers & Pages**，建立或開啟 Worker。
+2. **Edit code** → 將 `cloudflare_worker.js` 全文貼上 → **Deploy**。
+3. 開啟 `https://<你的worker>.workers.dev/`，看到「天機代理運作正常」即成功。
+4. 將 `js/config.js` 的 `ENDPOINTS.remoteProxy` / `remoteModels` 改為你的 Worker 網域，commit 後即對線上版生效。
 
-      try {
-        const authHeader = request.headers.get("Authorization");
-        const proxyHeaders = { "Accept": "application/json" };
-        if (authHeader) proxyHeaders["Authorization"] = authHeader;
+前端路由邏輯（`js/config.js`）：`localhost` / `127.0.0.1` / `file:` 視為本地，走 `localProxy`；其餘走 `remoteProxy`。呼叫失敗時按 `candidateProxyUrls` / `candidateModelUrls` 順序自動換端點重試。
 
-        const response = await fetch("https://integrate.api.nvidia.com/v1/models", {
-          method: "GET",
-          headers: proxyHeaders,
-        });
+## 驗證
 
-        const contentType = response.headers.get("content-type") || "application/json";
-
-        return new Response(response.body, {
-          status: response.status,
-          headers: {
-            "Content-Type": contentType,
-            ...CORS_HEADERS,
-          },
-        });
-      } catch (err) {
-        return new Response(JSON.stringify({
-          error: { message: `Worker 模型端點轉發異常: ${err.message}` }
-        }), {
-          status: 502,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS }
-        });
-      }
-    }
-
-    // ✅ 4. 劇情生成對話轉發 (POST /v1/chat/completions)
-    if (url.pathname === "/v1/chat/completions") {
-      if (request.method !== "POST") {
-        return new Response(JSON.stringify({ error: { message: "Method Not Allowed" } }), {
-          status: 405,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS }
-        });
-      }
-
-      try {
-        const authHeader = request.headers.get("Authorization");
-        const proxyHeaders = {
-          "Content-Type": "application/json",
-          "Accept": request.headers.get("Accept") || "application/json"
-        };
-        if (authHeader) proxyHeaders["Authorization"] = authHeader;
-
-        const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-          method: "POST",
-          headers: proxyHeaders,
-          body: request.body,
-        });
-
-        const contentType = response.headers.get("content-type") || "application/json";
-
-        return new Response(response.body, {
-          status: response.status,
-          headers: {
-            "Content-Type": contentType,
-            ...CORS_HEADERS,
-          },
-        });
-      } catch (err) {
-        return new Response(JSON.stringify({
-          error: { message: `Worker 劇情生成轉發異常: ${err.message}` }
-        }), {
-          status: 502,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS }
-        });
-      }
-    }
-
-    // ❌ 5. 未定義路徑
-    return new Response(JSON.stringify({ error: { message: "Route Not Found" } }), {
-      status: 404,
-      headers: { "Content-Type": "application/json", ...CORS_HEADERS }
-    });
-  },
-};
+```bash
+curl https://<你的worker>.workers.dev/v1/models \
+  -H "Authorization: Bearer <NVIDIA_KEY>"
 ```
 
-## 佈署步驟
-1. 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/) ➜ 點選 **Workers & Pages**。
-2. 點選您的 Worker 專案（例如 `restless-hat-8ef5`）➜ 進入 **Edit code**。
-3. 將上述完整程式碼貼上取代原有內容。
-4. 點擊右上角 **Deploy** 儲存發佈。
+應回傳 `{"data": [{"id": "..."}, ...]}`。若回 `404` 為路徑錯誤，`502` 為 Worker 轉發異常（看 Worker Logs）。
 
+## 與 server.py 的對應
+
+| 場景 | 使用端點 |
+| --- | --- |
+| 本地 `python server.py` | `http://127.0.0.1:4444/v1/...`（`localProxy` / `localModels`） |
+| 線上 Pages | 你的 Worker（`remoteProxy` / `remoteModels`） |
+| 除錯直連 | `https://integrate.api.nvidia.com/v1/...`（需關閉「隱匿蹤跡」，不建議） |

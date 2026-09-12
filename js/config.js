@@ -1,6 +1,7 @@
 // ========== 全域參數與設定（集中管理） ==========
 window.SETTINGS = {
-  VERSION: "v1.4.1",
+  VERSION: "v1.5.0",
+  SAVE_SCHEMA: 2,
 
   STORAGE_KEYS: {
     apiKey: 'tianyan_api_key',
@@ -34,11 +35,27 @@ window.SETTINGS = {
 
   LLM: {
     defaults: {
-      temperature: 0.5,
+      temperature: 0.55,
       top_p: 1,
-      max_tokens: 131072,
-      stream: false,
+      max_tokens: 2048,
+      stream: true,
       response_format: { type: "json_object" },
+      frequency_penalty: 0.6,
+      presence_penalty: 0.4,
+    },
+    // 統一故事呼叫（Director+Narrative 融合）：主力 gpt-oss-120b 基準
+    story: {
+      temperature: 0.55,
+      top_p: 1,
+      max_tokens: 1500,
+      stream: true,
+    },
+    // 數據裁判：低隨機、短輸出，保證數值穩定
+    meta: {
+      temperature: 0.15,
+      top_p: 1,
+      max_tokens: 600,
+      stream: false,
     },
     qwen: {
       temperature: 0.6,
@@ -62,13 +79,16 @@ window.SETTINGS = {
   UI: {
     mobileWidthPx: 768,
     stickToBottomThresholdPx: 15,
-    typewriterDelayMs: 75,
+    typewriterDelayMs: 28,
     floatingImpactDurationMs: 3000,
     floatingImpactStaggerMs: 1000,
   },
 
   GAME: {
     historyLimit: 15,
+    recentFullCount: 3,
+    summaryMaxChars: 1200,
+    maxAbilityDelta: 3,
   },
 };
 
