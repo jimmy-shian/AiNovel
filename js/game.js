@@ -142,6 +142,12 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
   if (e) e.preventDefault();
   if (window.state.isThinking) return;
 
+  // 防呆門檻：若尚未魂穿選定角色，阻斷操作並強制自動彈出選角視窗
+  if (!window.state.game?.player?.has_selected_character || !window.state.game?.player?.char_id) {
+    window.openTransmigrationModal(true);
+    return;
+  }
+
   if (isFirstMove) {
     window.selectors.storyLog.innerHTML = '';
   }
@@ -471,7 +477,7 @@ window.switchStory = async function(storyId) {
 
   try {
     const storyMeta = window.state.allStories[storyId];
-    const storyData = await fetch(storyMeta.file).then((res) => res.json());
+    const storyData = await fetch(storyMeta.file + '?v=' + Date.now()).then((res) => res.json());
     window.state.world = storyData;
   } catch (err) {
     console.error("[switchStory] Failed to load story data:", err);
@@ -487,8 +493,9 @@ window.switchStory = async function(storyId) {
   // 3. 讀取存檔
   const saved = window.loadFromStorage();
   window.selectors.storyLog.innerHTML = '';
+  let needMandatoryTransmigration = false;
 
-  if (saved) {
+  if (saved && saved.player?.has_selected_character && saved.player?.char_id) {
     window.state.game = saved;
     if (window.state.game.history.length === 0) {
       window.appendStory('系統：初始化完成。請在設置中輸入 API Key 並儲存以開始故事。', 'system');
@@ -501,7 +508,9 @@ window.switchStory = async function(storyId) {
   } else {
     window.state.game = JSON.parse(JSON.stringify(window.state.world.startingState));
     if (window.stampSaveSchema) window.stampSaveSchema(window.state.game);
-    window.appendStory('系統：等待鏈接中... 請在設置中輸入 API Key 並點擊儲存。', 'system');
+    window.state.game.player.has_selected_character = false;
+    window.renderStoryWelcomeCard();
+    window.lockActionInput('請先點選故事卡片按鈕或左側【魂穿化身】選定角色...');
   }
 
   // 4. 重置打字機與狀態
@@ -512,10 +521,4 @@ window.switchStory = async function(storyId) {
   
   // 5. 重新渲染畫面
   window.render();
-
-  // 6. 如果有 API Key 且為全新開局，自動觸發首輪
-  const apiKey = window.selectors.apiKey.value.trim();
-  if (apiKey && window.state.game.history.length === 0) {
-    window.handleAction(null, true);
-  }
 };

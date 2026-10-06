@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from typing import Optional
 import requests
 import json
 import os
@@ -104,6 +105,51 @@ async def chat_proxy(request: Request):
     except Exception as e:
         print(f"Proxy error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ========== 天衍九州 多代理人魂穿 API ==========
+from agent_flow_engine import MultiAgentEngine
+multiagent_engine = MultiAgentEngine()
+
+@app.get("/api/multiagent/characters")
+async def get_playable_characters(story_id: Optional[str] = None):
+    if story_id:
+        # 依故事動態讀取故事檔案
+        with open("world.json", "r", encoding="utf-8") as f:
+            world = json.load(f)
+        if story_id in world.get("stories", {}):
+            story_file = world["stories"][story_id]["file"]
+            multiagent_engine.load_story(story_file)
+    return {"characters": multiagent_engine.list_playable_characters()}
+
+@app.post("/api/multiagent/transmigrate")
+async def transmigrate_character(request: Request):
+    body = await request.json()
+    char_id = body.get("char_id")
+    story_id = body.get("story_id")
+    if story_id:
+        with open("world.json", "r", encoding="utf-8") as f:
+            world = json.load(f)
+        if story_id in world.get("stories", {}):
+            multiagent_engine.load_story(world["stories"][story_id]["file"])
+    try:
+        res = multiagent_engine.transmigrate(char_id)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/multiagent/tick")
+async def process_tick(request: Request):
+    body = await request.json()
+    director_output = body.get("director_output", {})
+    meta_output = body.get("meta_output", {})
+    player_input = body.get("player_input", "")
+
+    # 破綻檢測
+    dissonance_delta = multiagent_engine.evaluate_dissonance(player_input)
+    # 推進世界時鐘
+    step_res = multiagent_engine.step_world_tick(director_output, meta_output)
+    step_res["dissonance_delta"] = dissonance_delta
+    return step_res
 
 # 掛載當前目錄作為靜態檔案服務 (放置在 API 路由之後)
 BASE_DIR = Path(__file__).resolve().parent

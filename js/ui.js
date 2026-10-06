@@ -35,6 +35,7 @@ window.renderSidebar = function() {
 };
 
 window.renderExpandedView = function(p, sceneTitle) {
+  const currentChar = window.state.world?.characters?.[p.char_id];
   const storyOptions = Object.entries(window.state.allStories || {}).map(([id, story]) => {
     return `<option value="${id}" ${id === window.state.currentStoryId ? 'selected' : ''}>${story.title}</option>`;
   }).join('');
@@ -54,7 +55,7 @@ window.renderExpandedView = function(p, sceneTitle) {
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </div>
-          <div class="select-options glass hidden" id="story-select-options">
+          <div class="select-options glass" id="story-select-options">
             ${Object.entries(window.state.allStories || {}).map(([id, story]) => `
               <div class="option ${id === window.state.currentStoryId ? 'selected' : ''}" data-value="${id}">${story.title}</div>
             `).join('')}
@@ -70,10 +71,13 @@ window.renderExpandedView = function(p, sceneTitle) {
       ${window.renderStatItemHTML('生命', p.hp || 0, '#ef4444')}
       ${window.renderStatItemHTML('靈力', p.sp || 0, '#3b82f6')}
       ${window.renderStatItemHTML('業力', p.threat || 0, '#a855f7')}
-      ${p.abilities ? Object.entries(p.abilities).map(([name, value]) => window.renderStatItemHTML(name, value, '#E2B87E')).join('') : ''}
     </div>
 
     <div class="action-menu">
+      <button id="btn-transmigrate-exp" class="icon-btn" style="border-color: rgba(224, 176, 255, 0.4); color: #e0b0ff;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7.5" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+        <span>魂穿化身</span>
+      </button>
       <button id="btn-settings-exp" class="icon-btn">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
         <span>冥想配置</span>
@@ -96,6 +100,27 @@ window.renderExpandedView = function(p, sceneTitle) {
       <span class="label">當前坐標</span>
       <span class="value">${sceneTitle}</span>
     </div>
+
+    ${currentChar ? `
+      <div class="destiny-arc-card" style="
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(224, 176, 255, 0.05);
+        border: 1px solid rgba(224, 176, 255, 0.25);
+      ">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+          <span style="font-size: 0.75rem; color: #e0b0ff; font-weight: 700; letter-spacing: 0.05em;">【當前宿主命途】</span>
+          <span style="font-size: 0.72rem; color: #c084fc;">${currentChar.name} (${currentChar.title})</span>
+        </div>
+        <div style="font-size: 0.78rem; color: #ffd700; line-height: 1.4; margin-bottom: 4px;">
+          <strong>故事走向：</strong>${currentChar.agenda?.primary_goal || '於天地浩劫中求生'}
+        </div>
+        <div style="font-size: 0.75rem; color: #93c5fd; line-height: 1.3;">
+          <strong>當前方針：</strong>${currentChar.agenda?.current_plan || '洞察四周危機'}
+        </div>
+      </div>
+    ` : ''}
   `;
 };
 
@@ -103,12 +128,7 @@ window.renderCollapsedView = function(p) {
   const stats = [
     { label: '生命', value: p.hp || 0, color: '#ef4444' },
     { label: '靈力', value: p.sp || 0, color: '#3b82f6' },
-    { label: '業力', value: p.threat || 0, color: '#a855f7' },
-    ...(p.abilities ? Object.entries(p.abilities).map(([k, v]) => ({
-      label: k.slice(0, 2),
-      value: typeof v === 'object' ? `${v.val}/${v.max}` : v,
-      color: '#E2B87E'
-    })) : [])
+    { label: '業力', value: p.threat || 0, color: '#a855f7' }
   ];
 
   window.selectors.sidebarCollapsed.innerHTML = `
@@ -276,12 +296,20 @@ window.appendStory = function(text, type = 'narrative', timestamp = null) {
   if (type === 'action') sender = 'PLAYER';
   else if (type === 'system') sender = 'SYSTEM';
 
-  // 敘事進行段落格式化與角色對話框標記，其他類型僅做字串脫殼
-  const finalContent = type === 'narrative' ? window.formatNarrative(text) : window.cleanText(text);
+  let renderedContent = '';
+  if (text) {
+    if (type === 'system' && (text.trim().startsWith('<div') || text.trim().startsWith('<span'))) {
+      renderedContent = text; // 直接渲染原生 HTML (如魂穿奪舍卡片)
+    } else if (type === 'narrative') {
+      renderedContent = marked.parse(window.formatNarrative(text));
+    } else {
+      renderedContent = marked.parse(window.cleanText(text));
+    }
+  }
 
   entry.innerHTML = `
     <div class="entry-header"><span class="sender">${sender}</span> <span class="time">${timeStr}</span></div>
-    <div class="entry-content">${text ? marked.parse(finalContent) : ''}</div>`;
+    <div class="entry-content">${renderedContent}</div>`;
 
   const wasAtBottom = window.selectors.storyLog.scrollHeight - window.selectors.storyLog.scrollTop - window.selectors.storyLog.clientHeight < window.SETTINGS.UI.stickToBottomThresholdPx;
   window.selectors.storyLog.appendChild(entry);
@@ -414,53 +442,60 @@ window.setupCustomSelect = function() {
   const nativeSelect = window.selectors.modelSelect;
   const displayValue = window.selectors.modelSelectedValue;
 
+  if (!container || !trigger || !optionsList || !nativeSelect || !displayValue) return;
+
   function syncOptions() {
     optionsList.innerHTML = '';
     Array.from(nativeSelect.options).forEach(opt => {
       const optionEl = document.createElement('div');
-      optionEl.className = `option ${opt.value === nativeSelect.value ? 'selected' : ''}`;
+      optionEl.className = `option ${opt.selected ? 'selected' : ''}`;
       optionEl.dataset.value = opt.value;
       optionEl.textContent = opt.textContent;
 
       optionEl.addEventListener('click', (e) => {
         e.stopPropagation();
-        const val = optionEl.dataset.value;
-        nativeSelect.value = val;
+        nativeSelect.value = opt.value;
         displayValue.textContent = opt.textContent;
-        localStorage.setItem(window.SETTINGS.STORAGE_KEYS.selectedModel, val);
 
         optionsList.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
         optionEl.classList.add('selected');
 
         container.classList.remove('active');
-        optionsList.classList.add('hidden');
+        localStorage.setItem(window.SETTINGS.STORAGE_KEYS.selectedModel, opt.value);
       });
 
       optionsList.appendChild(optionEl);
     });
-    displayValue.textContent = nativeSelect.options[nativeSelect.selectedIndex]?.textContent || nativeSelect.value;
+
+    const selectedOpt = nativeSelect.options[nativeSelect.selectedIndex];
+    if (selectedOpt) displayValue.textContent = selectedOpt.textContent;
   }
 
   if (optionsList.children.length === 0) {
     syncOptions();
   }
 
-  trigger.addEventListener('click', (e) => {
+  trigger.onclick = (e) => {
     e.stopPropagation();
-    const isActive = container.classList.contains('active');
+    const isAlreadyOpen = container.classList.contains('active');
 
-    document.querySelectorAll('.custom-select').forEach(cs => cs.classList.remove('active'));
-    document.querySelectorAll('.select-options').forEach(so => so.classList.add('hidden'));
+    document.querySelectorAll('.custom-select').forEach(cs => {
+      if (cs !== container) {
+        cs.classList.remove('active');
+      }
+    });
 
-    if (!isActive) {
+    if (isAlreadyOpen) {
+      container.classList.remove('active');
+    } else {
       container.classList.add('active');
-      optionsList.classList.remove('hidden');
     }
-  });
+  };
 
-  document.addEventListener('click', () => {
-    container.classList.remove('active');
-    optionsList.classList.add('hidden');
+  document.addEventListener('click', (e) => {
+    if (!container.contains(e.target)) {
+      container.classList.remove('active');
+    }
   });
 };
 
@@ -475,51 +510,60 @@ window.setupStoryCustomSelect = function() {
 
   function syncOptions() {
     optionsList.innerHTML = '';
-    Array.from(nativeSelect.options).forEach(opt => {
+    const allStories = window.state.allStories || {};
+    Object.entries(allStories).forEach(([id, story]) => {
+      const isSelected = id === window.state.currentStoryId;
       const optionEl = document.createElement('div');
-      optionEl.className = `option ${opt.value === nativeSelect.value ? 'selected' : ''}`;
-      optionEl.dataset.value = opt.value;
-      optionEl.textContent = opt.textContent;
+      optionEl.className = `option ${isSelected ? 'selected' : ''}`;
+      optionEl.dataset.value = id;
+      optionEl.textContent = story.title;
 
       optionEl.addEventListener('click', (e) => {
         e.stopPropagation();
-        const val = optionEl.dataset.value;
-        nativeSelect.value = val;
-        displayValue.textContent = opt.textContent;
+        nativeSelect.value = id;
+        displayValue.textContent = story.title;
 
         optionsList.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
         optionEl.classList.add('selected');
 
         container.classList.remove('active');
-        optionsList.classList.add('hidden');
 
         // 觸發故事切換
-        window.switchStory(val);
+        window.switchStory(id);
       });
 
       optionsList.appendChild(optionEl);
     });
-    displayValue.textContent = nativeSelect.options[nativeSelect.selectedIndex]?.textContent || nativeSelect.value;
+
+    const currentTitle = allStories[window.state.currentStoryId]?.title;
+    if (currentTitle) displayValue.textContent = currentTitle;
   }
 
   syncOptions();
 
-  trigger.addEventListener('click', (e) => {
+  trigger.onclick = (e) => {
     e.stopPropagation();
-    const isActive = container.classList.contains('active');
+    const isAlreadyOpen = container.classList.contains('active');
 
-    document.querySelectorAll('.custom-select').forEach(cs => cs.classList.remove('active'));
-    document.querySelectorAll('.select-options').forEach(so => so.classList.add('hidden'));
+    // 關閉其他可能開啟的 select
+    document.querySelectorAll('.custom-select').forEach(cs => {
+      if (cs !== container) {
+        cs.classList.remove('active');
+      }
+    });
 
-    if (!isActive) {
+    if (isAlreadyOpen) {
+      container.classList.remove('active');
+    } else {
       container.classList.add('active');
-      optionsList.classList.remove('hidden');
     }
-  });
+  };
 
-  document.addEventListener('click', () => {
-    container.classList.remove('active');
-    optionsList.classList.add('hidden');
+  // 點擊容器外部時關閉
+  document.addEventListener('click', (e) => {
+    if (!container.contains(e.target)) {
+      container.classList.remove('active');
+    }
   });
 };
 
@@ -554,7 +598,12 @@ window.attachSidebarListeners = function() {
     if (confirm('確定要重塑乾坤（清空所有存檔）嗎？')) window.clearGame();
   };
 
+  const openTransmigrate = () => {
+    window.openTransmigrationModal();
+  };
+
   ['exp', 'col'].forEach(suffix => {
+    setupBtn(`btn-transmigrate-${suffix}`, openTransmigrate);
     setupBtn(`btn-settings-${suffix}`, openSettings);
     setupBtn(`export-save-${suffix}`, openExport);
     setupBtn(`import-save-${suffix}`, openImport);
@@ -603,3 +652,216 @@ window.updateQuickActionSelection = function(btns) {
     }
   });
 };
+
+// ========== 輸入框鎖定/解鎖機制（未選角防呆門檻） ==========
+window.lockActionInput = function(placeholderText = '【命途未啟】請先在上方彈窗中選擇魂穿肉身宿主...') {
+  if (window.selectors.playerAction) {
+    window.selectors.playerAction.disabled = true;
+    window.selectors.playerAction.placeholder = placeholderText;
+  }
+  const submitBtn = window.selectors.actionForm?.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.style.opacity = '0.4';
+    submitBtn.style.cursor = 'not-allowed';
+  }
+  const quickActions = window.selectors.quickActions;
+  if (quickActions) {
+    quickActions.innerHTML = `<span style="color: #888; font-size: 0.82rem; font-style: italic;">（等待宿主肉身歸竅...）</span>`;
+  }
+};
+
+window.unlockActionInput = function() {
+  if (window.selectors.playerAction) {
+    window.selectors.playerAction.disabled = false;
+    window.selectors.playerAction.placeholder = '在此輸入你的行動，干涉世界因果...';
+  }
+  const submitBtn = window.selectors.actionForm?.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
+    submitBtn.style.cursor = 'pointer';
+  }
+};
+
+// ========== 故事歡迎與介紹卡片（開局或切換故事時展示） ==========
+window.renderStoryWelcomeCard = function() {
+  const storyMeta = window.state.allStories?.[window.state.currentStoryId] || {};
+  const storyData = window.state.world || {};
+  const container = window.selectors.storyLog;
+  if (!container) return;
+
+  container.innerHTML = '';
+  const card = document.createElement('div');
+  card.className = 'story-entry welcome-card-entry';
+  card.innerHTML = `
+    <div class="welcome-story-card glass" style="
+      padding: 24px;
+      border-radius: 16px;
+      border: 1px solid rgba(226, 192, 128, 0.35);
+      background: rgba(18, 26, 18, 0.7);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    ">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+        <span style="font-size: 0.8rem; color: #e2c080; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600;">【當前劇本世界】</span>
+        <span style="font-size: 0.78rem; color: #a8a29e;">點選左上角「切換因果」可挑選其他故事</span>
+      </div>
+      <h2 style="color: #ffd700; font-family: var(--font-heading); font-size: 1.55rem; margin-bottom: 12px; letter-spacing: 0.05em;">
+        ${storyData.title || storyMeta.title || '太古因果網'}
+      </h2>
+      <p style="color: #d1b3ff; font-size: 0.95rem; line-height: 1.65; margin-bottom: 18px;">
+        ${storyMeta.description || storyData.description || '眾生皆如籠中之雀，唯有奪舍入局者，方能扭轉因果。'}
+      </p>
+      <div style="border-top: 1px dashed rgba(255, 255, 255, 0.15); padding-top: 14px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center;">
+        <button id="btn-welcome-transmigrate" class="primary-btn" style="
+          background: linear-gradient(135deg, #7c3aed, #4f46e5);
+          color: #ffffff;
+          padding: 10px 24px;
+          border-radius: 10px;
+          font-weight: 700;
+          cursor: pointer;
+          border: none;
+          box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);
+          font-size: 0.95rem;
+        ">
+          ⚡ 魂穿入局 · 挑選肉身角色
+        </button>
+        <span style="color: #888; font-size: 0.82rem;">（或從左側點選「魂穿化身」按鈕進入）</span>
+      </div>
+    </div>
+  `;
+
+  container.appendChild(card);
+  const btn = card.querySelector('#btn-welcome-transmigrate');
+  if (btn) {
+    btn.onclick = () => window.openTransmigrationModal();
+  }
+};
+
+// ========== 魂穿選角彈窗動態渲染 ==========
+window.openTransmigrationModal = function() {
+  const modal = window.selectors.transmigrateModal;
+  const listEl = window.selectors.characterCardList;
+  if (!modal || !listEl) return;
+
+  modal.classList.remove('mandatory-mode');
+
+  const characters = window.state.world?.characters || {};
+  const playableList = Object.values(characters).filter(c => c.playable);
+
+  if (playableList.length === 0) {
+    listEl.innerHTML = `<div style="grid-column: 1/-1; color: #888; text-align: center; padding: 20px;">當前劇本暫無可供魂穿的肉身宿主。</div>`;
+  } else {
+    listEl.innerHTML = playableList.map(c => {
+      const isCurrent = window.state.game?.player?.char_id === c.id;
+      return `
+        <div class="character-card glass ${isCurrent ? 'current-host' : ''}" style="
+          padding: 14px;
+          border-radius: 10px;
+          border: 1px solid ${isCurrent ? '#e0b0ff' : 'rgba(255,255,255,0.1)'};
+          background: ${isCurrent ? 'rgba(224, 176, 255, 0.08)' : 'rgba(255,255,255,0.03)'};
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          gap: 10px;
+          transition: all 0.2s ease;
+        ">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
+              <span style="font-weight: 700; color: #e0b0ff; font-size: 1.05em;">${c.name}</span>
+              <span style="font-size: 0.8em; color: #888;">【${c.initial_scene}】</span>
+            </div>
+            <div style="font-size: 0.82em; color: #d1b3ff; margin-bottom: 6px;">身份：${c.title}</div>
+            <div style="font-size: 0.82em; color: #ffd700; background: rgba(255, 215, 0, 0.08); padding: 6px 8px; border-radius: 6px; border-left: 3px solid #ffd700; margin-bottom: 6px; line-height: 1.4;">
+              <strong>【命途走向】</strong>${c.agenda?.primary_goal || '於天地浩劫中求生'}
+            </div>
+            <div style="font-size: 0.78em; color: #93c5fd; margin-bottom: 8px; line-height: 1.35;">
+              <strong>【破局方針】</strong>${c.agenda?.current_plan || '隨機應變'}
+            </div>
+            <div style="font-size: 0.8em; color: #aaa; line-height: 1.4; margin-bottom: 8px;">
+              ${c.profile}
+            </div>
+            <div style="font-size: 0.76em; color: #e2b87e; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 6px;">
+              <strong>肉身感官：</strong>${c.somatic_memory?.physical_state || '無特定感覺'}
+            </div>
+          </div>
+          <button class="primary-btn choose-char-btn" data-char-id="${c.id}" style="
+            width: 100%;
+            padding: 8px;
+            font-size: 0.85em;
+            background: ${isCurrent ? 'rgba(255,255,255,0.1)' : 'linear-gradient(135deg, #7c3aed, #4f46e5)'};
+          ">
+            ${isCurrent ? '當前宿主' : '奪舍魂穿'}
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    // 綁定選擇角色按鈕點擊事件
+    listEl.querySelectorAll('.choose-char-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const charId = e.currentTarget.dataset.charId;
+        window.executeTransmigration(charId);
+      });
+    });
+  }
+
+  modal.classList.remove('hidden');
+};
+
+// 執行魂穿替換
+window.executeTransmigration = function(charId) {
+  const characters = window.state.world?.characters || {};
+  const targetChar = characters[charId];
+  if (!targetChar) return;
+
+  const isInitialSelection = !window.state.game?.player?.has_selected_character || window.state.game?.history?.length === 0;
+
+  if (window.state.game) {
+    window.state.game.player.char_id = charId;
+    window.state.game.player.name = targetChar.name;
+    window.state.game.player.has_selected_character = true;
+    if (targetChar.abilities) {
+      window.state.game.player.abilities = JSON.parse(JSON.stringify(targetChar.abilities));
+    }
+    window.state.game.player.somatic_state = targetChar.somatic_memory?.physical_state;
+    window.state.game.scene = targetChar.initial_scene;
+    window.state.game.dissonance = targetChar.dissonance || 0.0;
+  }
+
+  // 關閉彈窗並解鎖行動輸入框
+  window.selectors.transmigrateModal?.classList.remove('mandatory-mode');
+  window.selectors.transmigrateModal?.classList.add('hidden');
+  window.unlockActionInput();
+
+  // 在故事日誌中加入魂穿破繭特效訊息
+  const wakeUpHtml = `
+    <div style="border-left: 3px solid #e0b0ff; padding-left: 12px; margin: 10px 0; color: #e0b0ff; background: rgba(224, 176, 255, 0.05); border-radius: 4px; padding: 10px;">
+      <strong style="color: #ffd700; font-size: 1.05em;">【神魂歸竅 · 魂穿奪舍】</strong><br>
+      神識如穿過無量苦海，猛然墜入一具軀殼之中——<br>
+      你成了「${targetChar.name}」（${targetChar.title}）。<br>
+      <span style="color: #aaa; font-size: 0.9em;">軀體感官：${targetChar.somatic_memory?.physical_state}</span><br>
+      <span style="color: #d1b3ff; font-size: 0.9em;">當前位置：【${targetChar.initial_scene}】</span><br>
+      <span style="color: #e2b87e; font-size: 0.9em;">執念動機：${targetChar.agenda?.primary_goal}</span>
+    </div>
+  `;
+  window.appendStory(wakeUpHtml, 'system');
+
+  // 保存存檔並重新渲染介面
+  window.saveToStorage();
+  window.render();
+
+  // 若為初次選角且歷史紀錄為空，立刻觸發首輪群像故事！
+  if (isInitialSelection && window.state.game.history.length === 0) {
+    const apiKey = window.selectors.apiKey?.value?.trim() || localStorage.getItem(window.SETTINGS.STORAGE_KEYS.apiKey);
+    if (apiKey) {
+      setTimeout(() => {
+        window.handleAction(null, true);
+      }, 400);
+    } else {
+      window.appendStory('系統：請點擊右上角「冥想配置」輸入 NVIDIA API Key 以啟動命途演繹。', 'system');
+    }
+  }
+};
+
+

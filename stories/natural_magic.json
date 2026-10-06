@@ -189,18 +189,6 @@
         "entropy": 0,
         "selfAwareness": 0,
         "systemFavor": 50
-      },
-      "abilities": {
-        "自然之眼": {
-          "val": 10,
-          "min": 0,
-          "max": 100
-        },
-        "悟性": {
-          "val": 10,
-          "min": 0,
-          "max": 100
-        }
       }
     },
     "flags": {
@@ -219,5 +207,252 @@
       "forest_decaying": true
     },
     "recent_memory": []
+  },
+  "characters": {
+    "char_senlin_jisi": {
+      "id": "char_senlin_jisi",
+      "name": "青鸞（森之大祭司）",
+      "title": "世界樹傳承種子",
+      "initial_scene": "迷霧森口",
+      "playable": true,
+      "profile": "眉心生有嫩芽印記的最後祭司，體內流淌著世界樹枯萎前留下的生機精魄，能與萬木魔網直接共鳴。",
+      "somatic_memory": {
+        "physical_state": "眉心神印如嫩芽破土般灼痛，體內魔網絲線微弱震顫，周身伴有草木幽香。",
+        "baseline_tone": "空靈、敬畏自然、沉靜包容，言談間以萬靈安危為念。",
+        "dissonance_cues": [
+          "若顯露殘殺草木或貪戀法寶之力，魔網共鳴將驟然斷絕",
+          "若向金甲雷君屈膝求全，體內種子將陷入休眠"
+        ],
+        "flashback_triggers": {
+          "char_lujiao": "觸碰鹿角精靈時，心海浮現太古巨鹿引導群靈朝拜世界樹的祥和盛景。",
+          "char_leijun": "望見金甲雷君時，神魂深處響起九天玄雷將世界樹劈裂的崩塌巨響。"
+        }
+      },
+      "attitude_matrix": {
+        "char_lujiao": {
+          "trust": 0.85,
+          "fear": 0.0,
+          "suspicion": 0.1
+        },
+        "char_shuiling": {
+          "trust": 0.5,
+          "fear": 0.3,
+          "suspicion": 0.3
+        },
+        "char_shuweng": {
+          "trust": 0.9,
+          "fear": 0.0,
+          "suspicion": 0.1
+        },
+        "char_leijun": {
+          "trust": -0.9,
+          "fear": 0.7,
+          "suspicion": 0.95
+        },
+        "char_yisheng_canhun": {
+          "trust": 0.3,
+          "fear": 0.2,
+          "suspicion": 0.6
+        }
+      },
+      "agenda": {
+        "primary_goal": "斬斷天道秩序鐵鎖，將魔網樞紐碎片歸位世界樹之心。",
+        "current_plan": "安撫狂暴鹿靈，穿越劇毒迷霧尋找枯木林的古老庇護。",
+        "secret": "她自己就是封印解開後需要被世界樹同化重生的『種子主體』。"
+      },
+      "dissonance": 0.0
+    },
+    "char_lujiao": {
+      "id": "char_lujiao",
+      "name": "白澤角（鹿角精靈）",
+      "title": "守霧聖獸殘魂",
+      "initial_scene": "迷霧森口",
+      "playable": true,
+      "profile": "曾為世界樹吐息守護者，因毒瘴侵蝕肉身崩解，如今只剩一縷靈體徘徊於林口，阻擋無知闖入者。",
+      "somatic_memory": {
+        "physical_state": "四蹄虛浮無力，鹿角泛著微弱青光但角尖已泛黑腐朽，吸入毒氣時喉頭劇痛。",
+        "baseline_tone": "哀傷、警惕、字句短促，時常發出輕微悲鳴。",
+        "dissonance_cues": [
+          "若大肆喧譁引來天雷，殘魂將加速潰散",
+          "若拋棄祭司獨自逃命，聖獸道心將徹底熄滅"
+        ],
+        "flashback_triggers": {
+          "char_senlin_jisi": "看見眉心嫩芽時，本能地想要屈膝跪迎聖主。",
+          "char_shuiling": "聽聞湖水咆哮，想起當年一同在甘霖下嬉戲的水之友伴。"
+        }
+      },
+      "attitude_matrix": {
+        "char_senlin_jisi": {
+          "trust": 0.9,
+          "fear": 0.0,
+          "suspicion": 0.1
+        },
+        "char_shuiling": {
+          "trust": 0.4,
+          "fear": 0.4,
+          "suspicion": 0.5
+        },
+        "char_shuweng": {
+          "trust": 0.8,
+          "fear": 0.0,
+          "suspicion": 0.1
+        },
+        "char_leijun": {
+          "trust": -1.0,
+          "fear": 0.9,
+          "suspicion": 1.0
+        }
+      },
+      "agenda": {
+        "primary_goal": "在靈魂徹底被毒化前，找到能繼承守護誓約的祭司。",
+        "current_plan": "利用自身角光為祭司驅散迷霧毒瘴，爭取生機。",
+        "secret": "其靈角內封存著一片太古樹皮，能阻擋一次金甲雷君的致命神罰。"
+      },
+      "dissonance": 0.0
+    },
+    "char_shuiling": {
+      "id": "char_shuiling",
+      "name": "滄漪（魔化水靈）",
+      "title": "翡翠湖守護靈",
+      "initial_scene": "翡翠湖",
+      "playable": true,
+      "profile": "本是至純至淨的翡翠湖水靈，魔網斷裂後受死氣灌注而陷入半狂暴，正於痛苦中掙扎尋求解脫。",
+      "somatic_memory": {
+        "physical_state": "水液身軀冰冷刺骨，時而澄澈時而漆黑翻騰，心竅處如萬刃刮骨。",
+        "baseline_tone": "狂亂中帶著哀求，水聲激盪，時而嘶吼時而幽咽。",
+        "dissonance_cues": [
+          "若表現得過於理性平和，狂暴水體將失控自爆",
+          "若主動離開水源太久，身軀將化為毒氣蒸發"
+        ],
+        "flashback_triggers": {
+          "char_senlin_jisi": "感受到純正自然生機，體內翻騰的黑水會暫時平息。",
+          "char_leijun": "望見金甲即引發巨浪狂嘯，恨意滔天。"
+        }
+      },
+      "attitude_matrix": {
+        "char_senlin_jisi": {
+          "trust": 0.6,
+          "fear": 0.1,
+          "suspicion": 0.4
+        },
+        "char_lujiao": {
+          "trust": 0.5,
+          "fear": 0.1,
+          "suspicion": 0.2
+        },
+        "char_shuweng": {
+          "trust": 0.7,
+          "fear": 0.0,
+          "suspicion": 0.1
+        },
+        "char_leijun": {
+          "trust": -0.95,
+          "fear": 0.8,
+          "suspicion": 1.0
+        }
+      },
+      "agenda": {
+        "primary_goal": "洗去體內死氣，將體內蘊養的魔網樞紐碎片交還神木。",
+        "current_plan": "以滔天巨浪困住闖入者，唯有能承受水靈重壓且喚醒其神識者可得信物。",
+        "secret": "若無法被淨化，它打算在雷君降臨時自爆湖泊，與雷靈同歸於盡。"
+      },
+      "dissonance": 0.0
+    },
+    "char_shuweng": {
+      "id": "char_shuweng",
+      "name": "枯榮老人（古老樹翁）",
+      "title": "神木古老守衛",
+      "initial_scene": "枯木林",
+      "playable": true,
+      "profile": "枯木林中活了數萬年的鐵骨巨木化身，半邊身軀已經完全石化碳化，苦苦守護著天道鐵鎖的關鍵缺口。",
+      "somatic_memory": {
+        "physical_state": "枝幹乾枯龜裂，每動一步皆如石磨重碾，樹心深處僅剩一縷微弱翠綠源火。",
+        "baseline_tone": "沙啞蒼老如枯枝摩挲，沉厚威嚴，看透生死輪迴。",
+        "dissonance_cues": [
+          "若行事輕佻急躁，會被老樹根鬚當場纏縛禁錮",
+          "若畏懼犧牲退縮，樹翁將收回所有引路枝條"
+        ],
+        "flashback_triggers": {
+          "char_senlin_jisi": "看著祭司眉心，想起世界樹幼苗初生時的萬丈青芒。",
+          "char_leijun": "看見金甲雷光，斷枝傷痕傳來烈火焚身之痛。"
+        }
+      },
+      "attitude_matrix": {
+        "char_senlin_jisi": {
+          "trust": 0.95,
+          "fear": 0.0,
+          "suspicion": 0.05
+        },
+        "char_lujiao": {
+          "trust": 0.8,
+          "fear": 0.0,
+          "suspicion": 0.1
+        },
+        "char_shuiling": {
+          "trust": 0.7,
+          "fear": 0.2,
+          "suspicion": 0.2
+        },
+        "char_leijun": {
+          "trust": -0.9,
+          "fear": 0.5,
+          "suspicion": 0.9
+        }
+      },
+      "agenda": {
+        "primary_goal": "在自身徹底化為枯木前，將天道秩序鐵鎖的薄弱節點傳承下去。",
+        "current_plan": "燃燒自身年輪，為祭司架設通往古老神木的生機天橋。",
+        "secret": "樹翁身下深埋著前代十萬枯木先祖的本源殘骨，可引動一次太古木靈大陣。"
+      },
+      "dissonance": 0.0
+    },
+    "char_leijun": {
+      "id": "char_leijun",
+      "name": "金甲雷君（雷靈傀儡）",
+      "title": "天道秩序代行者",
+      "initial_scene": "古老神木",
+      "playable": false,
+      "profile": "原為太古雷靈，被天道強行烙印秩序神印，煉製成斬斷一切生機的執法殺器，殘念時常在雷霆中悲鳴。",
+      "attitude_matrix": {
+        "char_senlin_jisi": {
+          "trust": -0.9,
+          "fear": 0.0,
+          "suspicion": 0.95
+        },
+        "char_shuweng": {
+          "trust": -0.8,
+          "fear": 0.0,
+          "suspicion": 0.8
+        }
+      },
+      "agenda": {
+        "primary_goal": "轟殺一切企圖接近世界樹之心的生靈，加固鐵鎖秩序。",
+        "current_plan": "以滅世天雷鎖定古老神木，斬碎任何萌動的生機芽孢。",
+        "secret": "其眉心秩序神印下方，藏著當年世界樹贈予它的護靈古葉。"
+      },
+      "dissonance": 0.0
+    }
+  },
+  "spatial_graph": {
+    "迷霧森口": [
+      "翡翠湖",
+      "枯木林"
+    ],
+    "翡翠湖": [
+      "迷霧森口",
+      "古老神木"
+    ],
+    "枯木林": [
+      "迷霧森口",
+      "古老神木"
+    ],
+    "古老神木": [
+      "翡翠湖",
+      "枯木林",
+      "世界樹之心"
+    ],
+    "世界樹之心": [
+      "古老神木"
+    ]
   }
 }

@@ -190,7 +190,10 @@ window.selectors = {
   get storySelectContainer() { return document.getElementById('story-select-container'); },
   get storySelectTrigger() { return document.getElementById('story-select-trigger'); },
   get storySelectOptions() { return document.getElementById('story-select-options'); },
-  get storySelect() { return document.getElementById('story-select'); }
+  get storySelect() { return document.getElementById('story-select'); },
+  get transmigrateModal() { return document.getElementById('transmigrate-modal'); },
+  get characterCardList() { return document.getElementById('character-card-list'); },
+  get btnCloseTransmigrate() { return document.getElementById('close-transmigrate-modal'); }
 };
 
 // 提示詞與暫存變數

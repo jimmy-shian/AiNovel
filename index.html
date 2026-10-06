@@ -97,29 +97,11 @@
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </div>
-          <div class="select-options glass hidden" id="model-select-options">
-            <div class="option" data-value="openai/gpt-oss-120b">openai/gpt-oss-120b</div>
-            <div class="option" data-value="openai/gpt-oss-20b">openai/gpt-oss-20b</div>
-            <div class="option" data-value="deepseek-ai/deepseek-r1">deepseek-ai/deepseek-r1</div>
-            <div class="option" data-value="deepseek-ai/deepseek-v3">deepseek-ai/deepseek-v3</div>
-            <div class="option" data-value="qwen/qwen3.5-122b-a10b">qwen/qwen3.5-122b-a10b</div>
-            <div class="option" data-value="meta/llama-3.3-70b-instruct">meta/llama-3.3-70b-instruct</div>
-            <div class="option" data-value="meta/llama-3.1-405b-instruct">meta/llama-3.1-405b-instruct</div>
-            <div class="option" data-value="meta/llama-3.1-70b-instruct">meta/llama-3.1-70b-instruct</div>
-            <div class="option" data-value="nvidia/nemotron-4-340b-instruct">nvidia/nemotron-4-340b-instruct</div>
-            <div class="option" data-value="mistralai/mistral-large-2-instruct">mistralai/mistral-large-2-instruct</div>
+          <div class="select-options glass" id="model-select-options">
+            <div class="option" style="color: #888;">正在探測可用模型...</div>
           </div>
           <select id="model-select" class="hidden">
-            <option value="openai/gpt-oss-120b">openai/gpt-oss-120b</option>
-            <option value="openai/gpt-oss-20b">openai/gpt-oss-20b</option>
-            <option value="deepseek-ai/deepseek-r1">deepseek-ai/deepseek-r1</option>
-            <option value="deepseek-ai/deepseek-v3">deepseek-ai/deepseek-v3</option>
-            <option value="qwen/qwen3.5-122b-a10b">qwen/qwen3.5-122b-a10b</option>
-            <option value="meta/llama-3.3-70b-instruct">meta/llama-3.3-70b-instruct</option>
-            <option value="meta/llama-3.1-405b-instruct">meta/llama-3.1-405b-instruct</option>
-            <option value="meta/llama-3.1-70b-instruct">meta/llama-3.1-70b-instruct</option>
-            <option value="nvidia/nemotron-4-340b-instruct">nvidia/nemotron-4-340b-instruct</option>
-            <option value="mistralai/mistral-large-2-instruct">mistralai/mistral-large-2-instruct</option>
+            <option value="">正在載入...</option>
           </select>
         </div>
         <div id="models-fetch-status" class="models-fetch-status"></div>
@@ -142,6 +124,22 @@
       <div class="modal-footer">
         <button id="confirm-save-action" class="primary-btn">執行</button>
         <button id="close-save-modal" class="secondary-btn">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 魂穿選角彈窗 -->
+  <div id="transmigrate-modal" class="modal hidden">
+    <div class="modal-content glass" style="max-width: 800px; max-height: 85vh; overflow-y: auto;">
+      <h2 style="color: #e0b0ff; text-align: center; margin-bottom: 8px;">【 神 魂 奪 舍 · 魂 穿 九 尊 】</h2>
+      <p style="color: #aaa; font-size: 0.9em; text-align: center; margin-bottom: 20px;">
+        天道之下，眾生皆如籠中雀。選擇一具肉身接管其執念與因果，親身把這段命運活完。
+      </p>
+      <div id="character-card-list" class="character-card-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+        <!-- 動態注入角色卡片 -->
+      </div>
+      <div class="modal-footer" style="margin-top: 20px; justify-content: center;">
+        <button id="close-transmigrate-modal" class="secondary-btn">暫不更換魂體</button>
       </div>
     </div>
   </div>

@@ -161,18 +161,6 @@
       "hiddenStats": {
         "selfAwareness": 0,
         "systemFavor": 50
-      },
-      "abilities": {
-        "劍意": {
-          "val": 0,
-          "min": 0,
-          "max": 100
-        },
-        "悟性": {
-          "val": 10,
-          "min": 0,
-          "max": 100
-        }
       }
     },
     "flags": {
@@ -194,5 +182,245 @@
       "heaven_alert": 1
     },
     "recent_memory": []
+  },
+  "characters": {
+    "char_jianxiu_wusheng": {
+      "id": "char_jianxiu_wusheng",
+      "name": "夜孤寒（無生劍修）",
+      "title": "荒古劍神轉世靈根",
+      "initial_scene": "劍塚外圍",
+      "playable": true,
+      "profile": "天生『無生劍體』的孤絕修士，手腕生有太古劍形暗印，為探求劍道盡頭強叩太古劍域。",
+      "somatic_memory": {
+        "physical_state": "腕間劍印滾燙如沸，周身骨骼常發出清脆劍鳴，五臟六腑承受著狂暴劍氣沖刷。",
+        "baseline_tone": "孤傲、鋒芒畢露、堅毅決絕，人如出鞘古劍。",
+        "dissonance_cues": [
+          "若畏懼傷痛言退，腕間劍印將黯淡封閉",
+          "若依附天道金甲守衛，無生劍體將遭萬劍撕咬反噬"
+        ],
+        "flashback_triggers": {
+          "char_jianweng": "凝視獨臂劍翁時，識海閃過一柄斬天巨劍被天劫雷霆硬生生折斷的血光。",
+          "char_xianzi": "步入洗劍池時，耳畔響起清冷如水的一聲劍嘯：『君且去，妾守池』。"
+        }
+      },
+      "attitude_matrix": {
+        "char_jianweng": {
+          "trust": 0.7,
+          "fear": 0.1,
+          "suspicion": 0.2
+        },
+        "char_xianzi": {
+          "trust": 0.8,
+          "fear": 0.0,
+          "suspicion": 0.1
+        },
+        "char_yuanhun": {
+          "trust": 0.6,
+          "fear": 0.3,
+          "suspicion": 0.4
+        },
+        "char_shoudian": {
+          "trust": -0.9,
+          "fear": 0.6,
+          "suspicion": 0.95
+        }
+      },
+      "agenda": {
+        "primary_goal": "尋得荒古劍神自斷佩劍，重塑無上劍意斬碎神殿雷印。",
+        "current_plan": "突破劍塚外圍狂暴亂流，向獨臂劍翁討教太古劍路。",
+        "secret": "他體內的無生劍骨，本身就是荒古神殿封印大門的最後一把鑰匙。"
+      },
+      "dissonance": 0.0
+    },
+    "char_jianweng": {
+      "id": "char_jianweng",
+      "name": "司徒殘（獨臂劍翁）",
+      "title": "劍塚守墓贖罪人",
+      "initial_scene": "劍塚外圍",
+      "playable": true,
+      "profile": "曾名震九州的人間劍首，百年前狂妄叩關神殿被斬落右臂，道心崩潰後自願留在劍塚外圍為萬劍守墓。",
+      "somatic_memory": {
+        "physical_state": "右肩斷處時常有天雷毒火燒灼感，左手粗礪握緊生鏽鐵劍，背部微駝。",
+        "baseline_tone": "嘶啞、譏誚、蒼涼而暗藏護短之意。",
+        "dissonance_cues": [
+          "若狂言自大不知天高地厚，守墓鐵劍將毫不留情斬下",
+          "若向仙劫低頭求饒，老者將徹底對其失望"
+        ],
+        "flashback_triggers": {
+          "char_jianxiu_wusheng": "看見夜孤寒腕間劍印，渾濁老眼泛起淚光，彷彿見到當年不可一世的劍神再世。",
+          "char_shoudian": "感應到神殿金甲威壓，斷臂處隱隱泣血。"
+        }
+      },
+      "attitude_matrix": {
+        "char_jianxiu_wusheng": {
+          "trust": 0.75,
+          "fear": 0.0,
+          "suspicion": 0.2
+        },
+        "char_xianzi": {
+          "trust": 0.6,
+          "fear": 0.0,
+          "suspicion": 0.1
+        },
+        "char_yuanhun": {
+          "trust": 0.5,
+          "fear": 0.2,
+          "suspicion": 0.3
+        },
+        "char_shoudian": {
+          "trust": -0.95,
+          "fear": 0.7,
+          "suspicion": 0.9
+        }
+      },
+      "agenda": {
+        "primary_goal": "阻止無辜劍修白白葬送，尋找真正能承接神劍之魂的後繼者。",
+        "current_plan": "以濁酒與狂劍試探入塚者，若真有神骨，則傾囊相授斷劍式。",
+        "secret": "其殘缺右臂早已化為一柄『枯骨血劍』，藏於劍塚焦土之下隨時準備殊死一搏。"
+      },
+      "dissonance": 0.0
+    },
+    "char_xianzi": {
+      "id": "char_xianzi",
+      "name": "凌霜（洗劍仙子）",
+      "title": "寒潭劍池真靈",
+      "initial_scene": "洗劍池",
+      "playable": true,
+      "profile": "洗劍池底億萬柄通靈神劍淬鍊洗出的劍靈化身，白衣若雪，常年以極寒潭水壓制劍域暴動的怨煞。",
+      "somatic_memory": {
+        "physical_state": "肌膚寒若玄冰，周身無一絲熱氣，神魂與深潭萬劍共鳴，時而清澈時而銳痛。",
+        "baseline_tone": "清冷孤高、吐字若冰珠落盤，超脫凡俗塵世。",
+        "dissonance_cues": [
+          "若沾染世俗貪念或污穢邪術，洗劍池水將瞬間化為殺生劍陣",
+          "若畏懼寒潭刺骨之冷，無法得其指引"
+        ],
+        "flashback_triggers": {
+          "char_jianxiu_wusheng": "潭水倒映出青年面容時，沉睡千年的洗劍池深處傳來一聲跨越萬古的嘆息。",
+          "char_yuanhun": "聽聞殘劍悲鳴，池水微波蕩漾，泛起同為劍道受難者的悲憫。"
+        }
+      },
+      "attitude_matrix": {
+        "char_jianxiu_wusheng": {
+          "trust": 0.8,
+          "fear": 0.0,
+          "suspicion": 0.15
+        },
+        "char_jianweng": {
+          "trust": 0.65,
+          "fear": 0.0,
+          "suspicion": 0.1
+        },
+        "char_yuanhun": {
+          "trust": 0.7,
+          "fear": 0.1,
+          "suspicion": 0.2
+        },
+        "char_shoudian": {
+          "trust": -0.85,
+          "fear": 0.5,
+          "suspicion": 0.9
+        }
+      },
+      "agenda": {
+        "primary_goal": "淨化入塚者體內的雜質與煞氣，守護深潭下的界域陣眼。",
+        "current_plan": "以極寒潭水淬鍊來者道心，助其洗淨凡胎成就無生劍心。",
+        "secret": "若潭水乾涸，池底的萬劍之魄將暴走破空，足以絞殺神殿金甲。"
+      },
+      "dissonance": 0.0
+    },
+    "char_yuanhun": {
+      "id": "char_yuanhun",
+      "name": "萬刃狂魂（殘劍怨魂首領）",
+      "title": "歷代殉道劍魄",
+      "initial_scene": "殘劍谷",
+      "playable": true,
+      "profile": "殘劍谷千千萬萬柄折斷之劍中的執念聚合體，面目猙獰變幻，渴望打破禁錮重臨人間殺敵。",
+      "somatic_memory": {
+        "physical_state": "無固定形體，宛如萬道劍光與黑霧交織，時時刻刻承受折斷與撕裂之痛。",
+        "baseline_tone": "重疊狂嘯、暴烈嘶啞、滿腔怨憤與戰意。",
+        "dissonance_cues": [
+          "若顯露優柔寡斷或懦弱退讓，殘劍怨氣會立刻反客為主將其撕咬吞噬",
+          "若盲目自詡為正義代行者，會被無情嘲諷"
+        ],
+        "flashback_triggers": {
+          "char_jianxiu_wusheng": "感應到純正劍神威壓，狂魂群體發出臣服與期待交織的咆哮。",
+          "char_shoudian": "望向神殿方向，滔天恨意引動谷內十萬殘劍齊鳴衝天。"
+        }
+      },
+      "attitude_matrix": {
+        "char_jianxiu_wusheng": {
+          "trust": 0.65,
+          "fear": 0.1,
+          "suspicion": 0.3
+        },
+        "char_jianweng": {
+          "trust": 0.5,
+          "fear": 0.2,
+          "suspicion": 0.3
+        },
+        "char_xianzi": {
+          "trust": 0.6,
+          "fear": 0.1,
+          "suspicion": 0.2
+        },
+        "char_shoudian": {
+          "trust": -1.0,
+          "fear": 0.4,
+          "suspicion": 1.0
+        }
+      },
+      "agenda": {
+        "primary_goal": "帶領殘劍谷重見天日，斬碎阻礙劍修自由的天道雷印。",
+        "current_plan": "尋找一名肉身足夠強韌的劍修，將萬劍執念託付於其一劍之中。",
+        "secret": "它們的核心正是荒古劍神當年自斷佩劍崩飛的三十六道主要碎片之一。"
+      },
+      "dissonance": 0.0
+    },
+    "char_shoudian": {
+      "id": "char_shoudian",
+      "name": "守殿金甲（天道仙傀）",
+      "title": "神殿天道禁衛",
+      "initial_scene": "荒古神殿",
+      "playable": false,
+      "profile": "荒古神殿前的天雷金甲守衛，神魂已被天道徹底格式化抹除，手持雷劫斬神戟，無情轟殺一切靠近神殿者。",
+      "attitude_matrix": {
+        "char_jianxiu_wusheng": {
+          "trust": -0.95,
+          "fear": 0.0,
+          "suspicion": 1.0
+        },
+        "char_jianweng": {
+          "trust": -0.9,
+          "fear": 0.0,
+          "suspicion": 0.8
+        }
+      },
+      "agenda": {
+        "primary_goal": "守護神殿下的界域通道封印，碾碎所有無生劍體轉世者。",
+        "current_plan": "引動太古九天神雷，將踏入神殿範圍者轟為齏粉。",
+        "secret": "其金甲深處刻滿了荒古劍神的手書遺言，只要劍神本命劍氣靠近便會產生顫鳴瓦解。"
+      },
+      "dissonance": 0.0
+    }
+  },
+  "spatial_graph": {
+    "劍塚外圍": [
+      "洗劍池",
+      "殘劍谷"
+    ],
+    "洗劍池": [
+      "劍塚外圍",
+      "殘劍谷",
+      "荒古神殿"
+    ],
+    "殘劍谷": [
+      "劍塚外圍",
+      "洗劍池",
+      "荒古神殿"
+    ],
+    "荒古神殿": [
+      "洗劍池",
+      "殘劍谷"
+    ]
   }
 }

@@ -2,7 +2,7 @@
 
 async function init() {
   // 載入世界設定檔
-  const data = await fetch('world.json').then((res) => res.json());
+  const data = await fetch('world.json?v=' + Date.now()).then((res) => res.json());
   window.state.allStories = data.stories;
 
   // 決定當前故事 ID
@@ -18,7 +18,7 @@ async function init() {
     console.error("No story meta found for storyId:", storyId);
     return;
   }
-  const storyData = await fetch(storyMeta.file).then((res) => res.json());
+  const storyData = await fetch(storyMeta.file + '?v=' + Date.now()).then((res) => res.json());
   window.state.world = storyData;
 
   // 載入與初始化 AI 提示詞
@@ -55,7 +55,7 @@ async function init() {
   }
 
   // 初始化狀態
-  if (saved) {
+  if (saved && saved.player?.has_selected_character && saved.player?.char_id) {
     window.state.game = saved;
     if (window.state.game.history.length === 0) {
       window.appendStory('系統：初始化完成。請在設置中輸入 API Key 並儲存以開始故事。', 'system');
@@ -68,14 +68,9 @@ async function init() {
   } else {
     window.state.game = JSON.parse(JSON.stringify(window.state.world.startingState));
     if (window.stampSaveSchema) window.stampSaveSchema(window.state.game);
-    if (saved === null) {
-      try {
-        const probeKey = window.getGameSaveKey ? window.getGameSaveKey() : null;
-        const rawProbe = probeKey ? localStorage.getItem(probeKey) : null;
-        if (rawProbe) window.appendStory('系統：偵測到舊版本命錄，已封存並開啟新局（v1.5 存檔斷代）。', 'system');
-      } catch (_) {}
-    }
-    window.appendStory('系統：等待鏈接中... 請在設置中輸入 API Key 並點擊儲存。', 'system');
+    window.state.game.player.has_selected_character = false;
+    window.renderStoryWelcomeCard();
+    window.lockActionInput('請先點選故事卡片按鈕或左側【魂穿化身】選定角色...');
   }
 
   window.render();
@@ -98,7 +93,7 @@ window.syncModelsFromEndpoint = async function(isManual = true) {
   try {
     const models = await window.fetchDynamicModels();
     if (models && models.length > 0) {
-      const currentModel = window.selectors.modelSelect?.value || localStorage.getItem(window.SETTINGS.STORAGE_KEYS.selectedModel) || 'openai/gpt-oss-120b';
+      const currentModel = window.selectors.modelSelect?.value || localStorage.getItem(window.SETTINGS.STORAGE_KEYS.selectedModel) || models[0];
       window.populateModelList(models, currentModel);
       if (statusEl) {
         let endpointName = "代理端點";
@@ -111,7 +106,7 @@ window.syncModelsFromEndpoint = async function(isManual = true) {
             endpointName = "NVIDIA 原廠直連";
           }
         }
-        statusEl.textContent = `✅ 成功同步 ${models.length} 個最新模型（${endpointName}）`;
+        statusEl.textContent = `✅ 成功載入 ${models.length} 個即時端點模型（${endpointName}）`;
         statusEl.className = 'models-fetch-status success';
       }
     } else {
@@ -137,9 +132,23 @@ window.syncModelsFromEndpoint = async function(isManual = true) {
 };
 
 function setupEventListeners() {
-  // 冥想設定按鈕
-  document.getElementById('btn-settings')?.addEventListener('click', () => {
+  // 冥想設定按鈕 - 打開時若未拉取過模型，自動連線端點拉取
+  const onOpenSettings = () => {
     window.selectors.settingsModal.classList.remove('hidden');
+    // 如果目前模型選單只有少數預設項目或無快取，自動同步
+    const currentOptionsCount = window.selectors.modelSelect?.options?.length || 0;
+    if (currentOptionsCount <= 2) {
+      window.syncModelsFromEndpoint(false);
+    }
+  };
+
+  document.getElementById('btn-settings')?.addEventListener('click', onOpenSettings);
+  document.getElementById('btn-settings-exp')?.addEventListener('click', onOpenSettings);
+  document.getElementById('btn-settings-col')?.addEventListener('click', onOpenSettings);
+
+  // 關閉魂穿選角彈窗
+  window.selectors.btnCloseTransmigrate?.addEventListener('click', () => {
+    window.selectors.transmigrateModal?.classList.add('hidden');
   });
 
   // 同步端點模型按鈕
@@ -159,8 +168,10 @@ function setupEventListeners() {
     
     window.selectors.settingsModal.classList.add('hidden');
 
-    // 若為新開局且已輸入 API Key，立即啟動首輪故事
-    if (key && window.state.game.history.length === 0) {
+    // 若尚未選定角色，彈出選角視窗
+    if (!window.state.game?.player?.has_selected_character || !window.state.game?.player?.char_id) {
+      window.openTransmigrationModal(true);
+    } else if (key && window.state.game.history.length === 0) {
       window.handleAction(null, true);
     }
   });

@@ -10,12 +10,13 @@ window.buildSystemPromptForModel = function(model, baseSystemPrompt, enableThink
 window.OUTPUT_CONTRACTS = {
   story: [
     '【輸出契約（必須遵守，否則會被系統退回重寫）】',
-    '1. 全程第一人稱「我」敘事，嚴禁以第二人稱「你」為主體超過 2 句。',
+    '1. 全程以玩家魂穿宿主的第一人稱「我」進行敘事，嚴禁以第二人稱「你」為主體超過 2 句。',
     '2. 僅回標準 JSON：{"narrative":"...","scene_goal":"...","dramatic_conflict":"...","reveal":"...","emotional_tone":"...","ending_hook":"...","scene_hint":"當前場景key或目標場景key" }',
-    '3. narrative 300-500 字，開篇承接玩家行動（80-120字），中段新危機（150-250字），結尾新線索+鉤子（50-120字）。',
-    '4. 嚴禁複述【場景氛圍】原文與前輪句子；每輪必須有新的威脅、線索或 NPC 行動。',
-    '5. 嚴禁數值/科技術語（HP→氣血/生機，SP→真元/神識，威脅→殺機/天劫預兆）。',
-    '6. 若移動場景，scene_hint 必須填寫 scene_exit 白名單內的「場景key」原文；未移動則填當前場景key。',
+    '3. narrative 350-550 字，結構：開篇承接玩家行動或奪舍醒轉（80-120字），中段【同場多名NPC同時交鋒對峙】（180-280字），結尾留下命途懸念鉤子（60-120字）。',
+    '4. 【多人同時對話強制要求】：在場的多名 NPC 必須圍繞各自的故事走向同時參與局勢，互相言語試探或聯手施壓，嚴禁只描寫單一 NPC 發言！每位說話角色必須使用獨立行格式：『角色名：「對話內容」』。',
+    '5. 嚴禁複述【場景氛圍】原文與前輪句子；每輪必須在時間、空間、因果或角色關係上有實質推進。',
+    '6. 嚴禁數值/科技術語（HP→氣血/生機，SP→真元/神識/靈息，威脅→殺機/天劫預兆）。',
+    '7. 若移動場景，scene_hint 必須填寫 scene_exit 白名單內的「場景key」原文；未移動則填當前場景key。',
   ].join('\n'),
   meta: [
     '【數據契約（必須遵守）】',
@@ -326,11 +327,30 @@ window.buildUnifiedStoryPrompt = function (action, isFirstMove) {
   const g = window.state.game;
   const scene = window.state.world?.scenes?.[g.scene] || {};
   const mem = window.renderMemoryBlock ? window.renderMemoryBlock(g.history || []) : '';
+  const allCharacters = window.state.world?.characters || {};
+  const playerChar = allCharacters[g.player.char_id] || {
+    name: g.player.name || '無名宿主',
+    title: '命運異數',
+    agenda: { primary_goal: '斬破天道枷鎖，尋得生機', current_plan: '觀察四周危機' }
+  };
+
+  // 搜尋當前場景中在場的所有 NPC（排除玩家自身）
+  const inSceneNpcs = Object.values(allCharacters).filter(c => {
+    return c.id !== g.player.char_id && (c.initial_scene === g.scene || c.current_scene === g.scene);
+  });
 
   let content = `【世界規則】\n${(window.state.world?.world_rules || []).join('\n')}\n主線謎團：${window.state.world?.main_mystery || window.state.world?.coreMystery?.truthHint || ''}`;
   if (window.state.world?.globalPrompt) content += `\n\n【世界觀全局設定】\n${window.state.world.globalPrompt}`;
-  content += `\n\n【當前階段】\n主線：${window.state.world?.main_arc || g?.current_arc?.goal || ''}\n壓力：${g?.current_arc?.pressure || ''}\n倒數：${g?.current_arc?.countdown ?? ''}`;
-  content += `\n\n【角色當前狀態】\n位置：${g.scene}（${scene.title || g.scene}）\n生命：${g.player.hp} | 靈力：${g.player.sp} | 業力：${g.player.threat}`;
+
+  content += `\n\n【玩家魂穿宿主情報（你附身接管的肉身）】
+宿主身份：${playerChar.name}（${playerChar.title}）
+【宿主個人故事走向目標】：${playerChar.agenda?.primary_goal || '於天地浩劫中求生'}
+【宿主當前破局方針】：${playerChar.agenda?.current_plan || '尋找盟友與線索'}
+【肉身感知與狀態】：${playerChar.somatic_memory?.physical_state || g.player.somatic_state || '經脈靈息流轉'}
+【原身慣用語氣】：${playerChar.somatic_memory?.baseline_tone || '冷靜凝重'}
+【破綻張力警示】：你剛剛魂穿接管此肉身，言行若嚴重違背原身性格，在場 NPC 會起疑盤問！`;
+
+  content += `\n\n【角色數值狀態】\n位置：${g.scene}（${scene.title || g.scene}）\n生命：${g.player.hp} | 靈力：${g.player.sp} | 業力：${g.player.threat}`;
   if (g.player.abilities) {
     const abList = Object.entries(g.player.abilities)
       .map(([k, v]) => {
@@ -341,25 +361,34 @@ window.buildUnifiedStoryPrompt = function (action, isFirstMove) {
     content += `\n能力屬性：${abList}`;
   }
   if (g.player.inventory?.length > 0) content += `\n行囊物品：${g.player.inventory.join('、')}`;
-  if (g.story_flags && Object.keys(g.story_flags).length > 0) {
-    content += `\n故事旗標：${JSON.stringify(g.story_flags)}`;
-  }
+
   content += `\n\n【當前場景資訊】\n名稱：${scene.title || g.scene}（key:${g.scene}）\n場景氛圍：${scene.location_core || scene.description || '四周充滿未知與危險'}`;
-  if (scene?.npcs?.length > 0) {
-    const npcText = scene.npcs.map(npc => {
-      if (typeof npc === 'object' && npc !== null) {
-        let desc = npc.name || '神秘人物';
-        if (npc.relationship) desc += `（立場:${npc.relationship}）`;
-        if (npc.speaking_style) desc += `（語氣:${npc.speaking_style}）`;
-        return desc;
-      }
-      return String(npc);
-    }).join('、');
+
+  // 注入在場 NPC 名單與他們各自的故事走向！
+  if (inSceneNpcs.length > 0) {
+    content += `\n\n【同場在場 NPC 名冊與各自的故事走向（各懷鬼胎，群像對峙）】`;
+    inSceneNpcs.forEach((npc, idx) => {
+      const attitude = npc.attitude_matrix?.[g.player.char_id] || { trust: 0.0, suspicion: 0.3 };
+      content += `\n[角色 ${idx + 1}]：${npc.name}（${npc.title}）
+- 他的故事走向目標：${npc.agenda?.primary_goal || '維持自身利益'}
+- 他當前的行動算計：${npc.agenda?.current_plan || '暗中觀察'}
+- 他的說話風格語氣：${npc.speaking_style || npc.somatic_memory?.baseline_tone || '神秘冷峻'}
+- 對主角態度：信任度 ${attitude.trust}，猜疑度 ${attitude.suspicion}`;
+    });
+
+    content += `\n\n👉【群像多人交互強制指引】：
+1. 本場景在場有多位角色，每個人都清楚知道自己要把故事帶往何方（各自的故事走向目標）！
+2. 在本段敘事中，在場的 NPC 必須【同時參與對峙】，各自為了自己的故事走向開口爭辯、試探或逼迫主角！
+3. 嚴禁只寫單一 NPC 發言！NPC 發言必須有獨立行對白格式：『角色名：「對話內容」』。`;
+  } else if (scene?.npcs?.length > 0) {
+    const npcText = scene.npcs.map(npc => typeof npc === 'object' ? npc.name : String(npc)).join('、');
     content += `\n在場人物：${npcText}`;
   }
+
   if (scene?.scene_exit?.length > 0) content += `\n可遷移區域（key白名單，只能選其一或不動）：${scene.scene_exit.join('、')}`;
   content += `\n\n${mem}`;
-  content += `\n\n【本輪玩家行動】\n${isFirstMove ? '（開局第一步，請描繪開場並給予初始指引）' : (action || '觀察四周')}`;
+
+  content += `\n\n【本輪玩家行動 / 推進節點】\n${isFirstMove ? '（【開局奪舍醒來】：描繪神魂墜入此肉身的衝擊與肉身感知，緊接著在場多位 NPC 同時圍繞在側、各自依自己的故事走向互相交鋒或盤問逼迫「我」，結尾留下命途懸念鉤子！）' : (action || '觀察四周，謀劃命途走向')}`;
   content += `\n\n${window.OUTPUT_CONTRACTS.story}`;
   return content;
 };
@@ -385,6 +414,13 @@ window.buildStrictMetaContext = function (action, narrative, sceneHint) {
     return `- ${n}: ${v} (階位: ${tierInfo.name})`;
   }).join('\n')}`;
   if (scene?.scene_exit?.length > 0) content += `\n可遷移區域（key白名單）：${scene.scene_exit.join('、')}`;
+  
+  const allCharacters = window.state.world?.characters || {};
+  const playerChar = allCharacters[g.player.char_id];
+  if (playerChar) {
+    content += `\n\n【宿主專屬故事走向目標】\n${playerChar.agenda?.primary_goal}\n（生成的 3-4 個 options 必須提供符合其命途走向或化解在場 NPC 試探逼問的具體行動）`;
+  }
+
   content += `\n\n【重要：場景遷移指示】\n僅當行動或敘事明確移動到白名單內目標時，scene 才填目標「場景key」原文；否則填 null。`;
   content += `\n\n${window.OUTPUT_CONTRACTS.meta}`;
   return content;
