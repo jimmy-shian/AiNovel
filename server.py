@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+import sys
+if sys.platform.startswith('win'):
+    import io
+    if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    if getattr(sys.stderr, 'encoding', '').lower() != 'utf-8':
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -22,6 +30,15 @@ app.add_middleware(
 INVOKE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 MODELS_URL = "https://integrate.api.nvidia.com/v1/models"
 
+def resolve_upstream(headers: dict, default_endpoint: str, default_path: str) -> str:
+    target = headers.get("x-target-url") or headers.get("X-Target-URL") or headers.get("x-upstream-url")
+    if target and target.strip():
+        return target.strip()
+    base = headers.get("x-base-url") or headers.get("X-Base-URL") or headers.get("x-upstream-base")
+    if base and base.strip():
+        return base.strip().rstrip("/") + default_path
+    return default_endpoint
+
 @app.get("/v1/models")
 async def models_proxy(request: Request):
     headers = dict(request.headers)
@@ -32,9 +49,10 @@ async def models_proxy(request: Request):
     if auth_header:
         proxy_headers["Authorization"] = auth_header
 
+    target_url = resolve_upstream(headers, MODELS_URL, "/v1/models")
     try:
         response = requests.get(
-            MODELS_URL,
+            target_url,
             headers=proxy_headers,
             timeout=15
         )
@@ -57,8 +75,6 @@ async def chat_proxy(request: Request):
     body = await request.json()
     headers = dict(request.headers)
     
-    # 過濾掉原本的 Host 等 headers，保留必要的 Authorization
-    # 獲取 Authorization，相容不同大小寫
     auth_header = headers.get("authorization") or headers.get("Authorization")
     
     proxy_headers = {
@@ -68,11 +84,12 @@ async def chat_proxy(request: Request):
     }
 
     model_name = body.get("model", "unknown")
-    print(f"Forwarding request for model: {model_name} (stream={body.get('stream')})")
+    target_url = resolve_upstream(headers, INVOKE_URL, "/v1/chat/completions")
+    print(f"Forwarding request for model: {model_name} (stream={body.get('stream')}) to {target_url}")
 
     try:
         response = requests.post(
-            INVOKE_URL,
+            target_url,
             headers=proxy_headers,
             json=body,
             stream=body.get("stream", False),
@@ -127,19 +144,54 @@ async def transmigrate_character(request: Request):
     char_id = body.get("char_id")
     story_id = body.get("story_id")
     if story_id:
-        with open("world.json", "r", encoding="utf-8") as f:
-            world = json.load(f)
-        if story_id in world.get("stories", {}):
-            multiagent_engine.load_story(world["stories"][story_id]["file"])
+        # 故事切換守衛：同故事魂穿不重載（維持世界心跳連續），僅換故事才重載
+        try:
+            with open("world.json", "r", encoding="utf-8") as f:
+                world = json.load(f)
+            if story_id in world.get("stories", {}):
+                story_file = world["stories"][story_id]["file"]
+                if multiagent_engine.story_file != story_file:
+                    multiagent_engine.load_story(story_file)
+        except Exception:
+            pass
     try:
         res = multiagent_engine.transmigrate(char_id)
         return res
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.post("/api/multiagent/reset")
+async def reset_multiagent_world(request: Request):
+    """顯式新局重置（取代 transmigrate 內隱式重置）：還原 tick/警戒/站位。"""
+    body = await request.json()
+    story_id = body.get("story_id")
+    story_file = None
+    if story_id:
+        try:
+            with open("world.json", "r", encoding="utf-8") as f:
+                world = json.load(f)
+            if story_id in world.get("stories", {}):
+                story_file = world["stories"][story_id]["file"]
+        except Exception:
+            pass
+    res = multiagent_engine.reset_world(story_file)
+    return res
+
 @app.post("/api/multiagent/tick")
 async def process_tick(request: Request):
     body = await request.json()
+    # story_id 切換守衛：與 engine 當前故事不同才重新載入，避免每次 tick 重置世界時鐘
+    story_id = body.get("story_id")
+    if story_id:
+        try:
+            with open("world.json", "r", encoding="utf-8") as f:
+                world = json.load(f)
+            if story_id in world.get("stories", {}):
+                story_file = world["stories"][story_id]["file"]
+                if multiagent_engine.story_file != story_file:
+                    multiagent_engine.load_story(story_file)
+        except Exception:
+            pass
     director_output = body.get("director_output", {})
     meta_output = body.get("meta_output", {})
     player_input = body.get("player_input", "")

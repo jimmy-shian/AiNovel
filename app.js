@@ -22,14 +22,22 @@ async function init() {
   window.state.world = storyData;
 
   // 載入與初始化 AI 提示詞
+  // @deprecated 相容殼：舊三段全域僅保留供無 transmigration 劇本回退與舊存檔；新管線 system prompt
+  // 組裝只走 narrative_transmigration / director_transmigration 精簡版（見 buildUnifiedStorySystem）。
   window.DIRECTOR_PROMPT = window.state.world.prompts.director;
   window.NARRATIVE_PROMPT = window.state.world.prompts.narrative;
   window.META_PROMPT = window.state.world.prompts.meta;
 
-  // 載入 API Key 與 Proxy 設定
+  // 載入 API Key、Proxy 與自訂端點設定
   const savedKey = localStorage.getItem(window.SETTINGS.STORAGE_KEYS.apiKey);
   if (savedKey) window.selectors.apiKey.value = savedKey;
   window.selectors.proxyToggle.checked = window.CONFIG.useProxy;
+  try {
+    if (window.selectors.customProxyUrl) window.selectors.customProxyUrl.value = window.CONFIG.customProxyUrl || '';
+    if (window.selectors.customChatEndpoint) window.selectors.customChatEndpoint.value = window.CONFIG.customChatEndpoint || '';
+    if (window.selectors.customModelsEndpoint) window.selectors.customModelsEndpoint.value = window.CONFIG.customModelsEndpoint || '';
+  } catch (_) {}
+  if (window.applyTheme) window.applyTheme(localStorage.getItem(window.SETTINGS.STORAGE_KEYS.theme) || 'dark', false);
 
   // 載入已快取之模型清單或使用系統預設模型清單
   const savedModel = localStorage.getItem(window.SETTINGS.STORAGE_KEYS.selectedModel) || 'openai/gpt-oss-120b';
@@ -57,12 +65,19 @@ async function init() {
   // 初始化狀態
   if (saved && saved.player?.has_selected_character && saved.player?.char_id) {
     window.state.game = saved;
+    // 還原多代理世界時鐘（存檔內含則還原，否則維持初始值）
+    if (saved.world_clock) window.state.multiagent = { ...saved.world_clock };
     if (window.state.game.history.length === 0) {
       window.appendStory('系統：初始化完成。請在設置中輸入 API Key 並儲存以開始故事。', 'system');
     } else {
       window.state.game.history.forEach(entry => {
         if (entry.action) window.appendStory(entry.action, 'action', entry.timestamp);
-        if (entry.result) window.appendStory(entry.result.narrative, entry.result.success !== false ? 'narrative' : 'system', entry.timestamp);
+        if (entry.result) {
+          const el = window.appendStory('', entry.result.success !== false ? 'narrative' : 'system', entry.timestamp);
+          const contentEl = el.querySelector('.entry-content');
+          if (contentEl && window.renderFullNarrativeHTML) contentEl.innerHTML = window.renderFullNarrativeHTML(entry.result);
+          else if (contentEl) contentEl.innerHTML = marked.parse(window.formatNarrative(entry.result.narrative || ''));
+        }
       });
     }
   } else {
@@ -86,7 +101,7 @@ async function init() {
 window.syncModelsFromEndpoint = async function(isManual = true) {
   const statusEl = document.getElementById('models-fetch-status');
   if (isManual && statusEl) {
-    statusEl.textContent = '⏳ 正在查詢最新可用模型 (自動容錯)...';
+    statusEl.textContent = '[SYNC] 正在查詢最新可用模型 (自動容錯)...';
     statusEl.className = 'models-fetch-status loading';
   }
 
@@ -98,7 +113,11 @@ window.syncModelsFromEndpoint = async function(isManual = true) {
       if (statusEl) {
         let endpointName = "代理端點";
         if (window.state.lastModelEndpoint) {
-          if (window.state.lastModelEndpoint.includes('127.0.0.1') || window.state.lastModelEndpoint.includes('localhost')) {
+          const customChat = window.CONFIG.customChatEndpoint || '';
+          const customModels = window.CONFIG.customModelsEndpoint || '';
+          if ((customChat && window.state.lastModelEndpoint === customChat) || (customModels && window.state.lastModelEndpoint === customModels)) {
+            endpointName = "自訂端點";
+          } else if (window.state.lastModelEndpoint.includes('127.0.0.1') || window.state.lastModelEndpoint.includes('localhost')) {
             endpointName = "本地伺服器 127.0.0.1:4444";
           } else if (window.state.lastModelEndpoint.includes('workers.dev')) {
             endpointName = "遠端 Cloudflare 代理";
@@ -106,12 +125,12 @@ window.syncModelsFromEndpoint = async function(isManual = true) {
             endpointName = "NVIDIA 原廠直連";
           }
         }
-        statusEl.textContent = `✅ 成功載入 ${models.length} 個即時端點模型（${endpointName}）`;
+        statusEl.textContent = `[READY] 成功載入 ${models.length} 個即時端點模型 (${endpointName})`;
         statusEl.className = 'models-fetch-status success';
       }
     } else {
       if (isManual && statusEl) {
-        statusEl.textContent = '⚠️ 端點回傳空清單，已載入系統預設推薦模型';
+        statusEl.textContent = '[WARN] 端點回傳空清單，已載入系統預設推薦模型';
         statusEl.className = 'models-fetch-status error';
       }
     }
@@ -120,11 +139,11 @@ window.syncModelsFromEndpoint = async function(isManual = true) {
       const is404 = String(err.message).includes('404');
       const isCors = String(err.message).includes('Failed to fetch') || String(err.message).includes('NetworkError');
       if (is404) {
-        statusEl.textContent = '⚠️ 端點 404 (請確認 server.py 運行中)';
+        statusEl.textContent = '[WARN] 端點 404 (請確認 server.py 運行中或自訂端點路徑正確)';
       } else if (isCors) {
-        statusEl.textContent = '⚠️ CORS 阻擋 (請確認已啟動 python server.py 並勾選「隱匿蹤跡」)';
+        statusEl.textContent = '[WARN] CORS 阻擋 (請確認已啟動 python server.py 並勾選「隱匿蹤跡」)';
       } else {
-        statusEl.textContent = `❌ 同步失敗: ${err.message}`;
+        statusEl.textContent = `[ERR] 同步失敗: ${err.message}`;
       }
       statusEl.className = 'models-fetch-status error';
     }
@@ -156,12 +175,41 @@ function setupEventListeners() {
     window.syncModelsFromEndpoint(true);
   });
   
-  // 儲存設定
+  // 重置自訂端點
+  window.selectors.btnResetEndpoint?.addEventListener('click', () => {
+    window.CONFIG.customProxyUrl = '';
+    window.CONFIG.customChatEndpoint = '';
+    window.CONFIG.customModelsEndpoint = '';
+    if (window.selectors.customProxyUrl) window.selectors.customProxyUrl.value = '';
+    if (window.selectors.customChatEndpoint) window.selectors.customChatEndpoint.value = '';
+    if (window.selectors.customModelsEndpoint) window.selectors.customModelsEndpoint.value = '';
+    if (window.showToast) window.showToast('已恢復預設端點排序', 'success');
+    window.syncModelsFromEndpoint(false);
+  });
+
+  // 存檔碼 1-click 複製
+  window.selectors.btnCopySaveCode?.addEventListener('click', (e) => {
+    const text = window.selectors.saveCode.value || '';
+    if (window.copyToClipboard) window.copyToClipboard(text, e.currentTarget, '1-Click 複製');
+  });
+
+  // 儲存設定 (含自訂端點)
   window.selectors.btnCloseSettings.addEventListener('click', async () => {
     const key = window.selectors.apiKey.value.trim();
     const model = window.selectors.modelSelect.value;
     window.CONFIG.useProxy = window.selectors.proxyToggle.checked;
     localStorage.setItem(window.SETTINGS.STORAGE_KEYS.apiKey, key);
+    // 自訂端點：chat 留空則清空；models 留空則嘗試由 chat 推導
+    let customProxy = (window.selectors.customProxyUrl?.value || '').trim();
+    let customChat = (window.selectors.customChatEndpoint?.value || '').trim();
+    let customModels = (window.selectors.customModelsEndpoint?.value || '').trim();
+    if (!customModels && customChat && /chat\/completions\/?$/.test(customChat)) {
+      customModels = customChat.replace(/chat\/completions\/?$/, 'models');
+      if (window.selectors.customModelsEndpoint) window.selectors.customModelsEndpoint.value = customModels;
+    }
+    window.CONFIG.customProxyUrl = customProxy;
+    window.CONFIG.customChatEndpoint = customChat;
+    window.CONFIG.customModelsEndpoint = customModels;
     if (model) {
       localStorage.setItem(window.SETTINGS.STORAGE_KEYS.selectedModel, model);
     }

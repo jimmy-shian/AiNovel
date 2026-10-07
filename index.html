@@ -79,14 +79,33 @@
     <div class="modal-content glass">
       <h2>冥想配置</h2>
       <div class="input-group">
-        <label>NVIDIA API Key</label>
+        <label>API Key (NVIDIA / OpenAI / 任何相容服務商)</label>
         <input id="api-key" type="password" placeholder="輸入 API 金鑰..." />
+      </div>
+      <div class="input-group">
+        <label>自訂 Worker / 代理服務網址 (可選)</label>
+        <input id="custom-proxy-url" type="url" inputmode="url" placeholder="留空 = 預設代理；若自行部署 Worker 填入網址，例：https://xxx.workers.dev" />
+        <p class="field-hint">託管於 Cloudflare Worker 之天機代理與因果網世界引擎。留空自動使用內建 Worker 或本地服務。</p>
+      </div>
+      <div class="input-group">
+        <div class="label-row">
+          <label>自訂 Chat 端點 (POST /v1/chat/completions)</label>
+          <button id="btn-reset-endpoint" type="button" class="sync-models-btn" title="恢復預設端點">[RESET]</button>
+        </div>
+        <input id="custom-chat-endpoint" type="url" inputmode="url" placeholder="留空 = NVIDIA 預設；例：https://api.deepseek.com/chat/completions 或 https://api.openai.com/v1/chat/completions" />
+        <p class="field-hint">可填入任意相容端點 (NVIDIA / DeepSeek / OpenAI / OpenRouter / Ollama)。啟用隱匿蹤跡時由 Worker 自動免 CORS 轉發。</p>
+      </div>
+      <div class="input-group">
+        <label>自訂 Models 端點 (GET /v1/models)</label>
+        <input id="custom-models-endpoint" type="url" inputmode="url" placeholder="留空 = 自動由 Chat 端點推導對應" />
+        <p class="field-hint">留空時自動由 Chat 端點推導 (尾段替換為 models)。</p>
       </div>
       <div class="input-group">
         <div class="label-row">
           <label>運算模型</label>
           <button id="btn-fetch-models" type="button" class="sync-models-btn" title="從端點獲取最新可用模型">
-            🔄 同步端點模型
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+            <span>[SYNC] 同步端點模型</span>
           </button>
         </div>
         <div class="custom-select" id="model-select-container">
@@ -122,6 +141,7 @@
       <h2 id="save-modal-title">序列數據</h2>
       <textarea id="save-code" placeholder="在此貼上或複製數據序列..."></textarea>
       <div class="modal-footer">
+        <button id="copy-save-code" class="secondary-btn" type="button">1-Click 複製</button>
         <button id="confirm-save-action" class="primary-btn">執行</button>
         <button id="close-save-modal" class="secondary-btn">取消</button>
       </div>
@@ -131,8 +151,8 @@
   <!-- 魂穿選角彈窗 -->
   <div id="transmigrate-modal" class="modal hidden">
     <div class="modal-content glass" style="max-width: 800px; max-height: 85vh; overflow-y: auto;">
-      <h2 style="color: #e0b0ff; text-align: center; margin-bottom: 8px;">【 神 魂 奪 舍 · 魂 穿 九 尊 】</h2>
-      <p style="color: #aaa; font-size: 0.9em; text-align: center; margin-bottom: 20px;">
+      <h2 style="color: var(--brand-soul); text-align: center; margin-bottom: 8px;">【 神 魂 奪 舍 · 魂 穿 九 尊 】</h2>
+      <p style="color: var(--text-muted); font-size: 0.9em; text-align: center; margin-bottom: 20px;">
         天道之下，眾生皆如籠中雀。選擇一具肉身接管其執念與因果，親身把這段命運活完。
       </p>
       <div id="character-card-list" class="character-card-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
@@ -144,6 +164,15 @@
     </div>
   </div>
 
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+  <script>
+    try {
+      var savedTheme = localStorage.getItem('tianyan_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    } catch (_) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  </script>
   <script src="js/config.js"></script>
   <script src="js/utils.js"></script>
   <script src="js/story-bible.js"></script>

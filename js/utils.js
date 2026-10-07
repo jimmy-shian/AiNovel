@@ -11,25 +11,158 @@ window.cleanText = function(text) {
 };
 
 /**
- * 敘事格式化處理 (段落自動換行與對話框色彩標記)
+ * 敘事格式化處理 (群聊式多人對話渲染)
+ * 支援新契約『角色名：「對話」』獨立行 + 舊式 名字說道：「對話」，
+ * 每位發言者渲染為獨立群聊氣泡 (頭像首字 + 名字 + 內容)，說話人色彩由名字雜湊分配。
+ */
+window.speakerHue = function(name) {
+  let h = 0;
+  const s = String(name || '');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return h;
+};
+
+window.escapeHtml = function(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+};
+
+// 說話動詞（附於角色名尾部的動作描寫），用於還原純淨說話者名稱
+const SPEECH_VERB_TAIL = /(?:冷笑道|沉聲道|低聲道|高聲道|微笑道|緩緩道|淡淡道|朗聲道|喃喃道|怒道|嘆道|問道|答道|續道|又道|急道|獰笑道|慘笑道|笑道|說道|說著|續問|又問|冷笑|嗤笑|輕笑|慘笑|獰笑|微笑|冷哼|怒喝|怒斥|驚呼|喃喃|低語|自語|沉聲|低聲|高聲|疾聲|失聲|斷然|嘆息|搖頭|回頭|喘息|道|說)$/;
+
+// 欄位標籤（非角色名）：這些「XX：『…』」是狀態/提示，不應渲染成氣泡
+const SPEAKER_STOPLIST = new Set([
+  '狀態', '旁白', '提示', '標題', '時間', '地點', '系統', '註解', '備註', '說明',
+  '內容', '結果', '選項', '目標', '描述', '標註', '註', '背景', '氣氛', '氛圍',
+  '開場', '結語', '視角', '風格', '數值', '能力', '能力值', '警告', '備忘', '摘要',
+]);
+
+// 純說話動詞（本身不能當說話者名稱）
+const SPEAKER_PURE_VERB = /^(?:說道|說|道|問|答|笑|喊|吼|叫|嘆|冷笑|嗤笑|微笑|喃喃|自語|低語|沉聲|低聲|高聲|疾聲|怒喝|怒斥|驚呼|嘆息|緩緩|淡淡|續道|又道|續問|又問)$/;
+
+// 敘事連接詞/副詞（「老者嘆息，隨即道：「…」」的「隨即」不是說話者）
+const SPEAKER_NON_NAME = /^(?:隨即|於是|接著|然後|這時|此時|此刻|突然|驀地|驀然|霎時|頓時|當下|旋即|繼而|同時|最後|首先|其次|方才|適才|霎那|頃刻|隨後|繼而|然後|便|卻|乃|亦|復)$/;
+
+/**
+ * 還原純淨說話者名稱。
+ * 回傳 '' 代表此片段不是角色名（敘事/欄位標籤），呼叫端應保留原文。
+ */
+window.cleanSpeakerName = function(raw) {
+  let sp = String(raw || '').trim().replace(/^[「『'"\s]+|[」』'"\s]+$/g, '');
+  if (!sp || sp.length > 16) return '';
+
+  // 先摘掉尾部說話動詞：「老毒物冷笑」→「老毒物」
+  const stripped = sp.replace(SPEECH_VERB_TAIL, '');
+  // 摘除後剩代名詞 → 原字串是「他說」「我問」這類敘事片段
+  if (/^[我你他她它們]$/.test(stripped)) return stripped === '我' ? '我' : '';
+  if (stripped.length >= 2) sp = stripped;
+
+  if (SPEAKER_STOPLIST.has(sp)) return '';
+  if (SPEAKER_PURE_VERB.test(sp)) return '';
+  if (SPEAKER_NON_NAME.test(sp)) return '';
+  // ≥3 字仍含代名詞/指示詞 → 敘事片段（如「他轉頭」「我點點頭」「那人冷笑」）
+  if (sp.length >= 3 && /[我你他她它們的了著這那]/.test(sp)) return '';
+  return sp;
+};
+
+/**
+ * 產生單一發言者的群聊氣泡
+ */
+window.buildChatBubble = function(sp, dialogContent) {
+  const hue = window.speakerHue(sp);
+  const name = window.escapeHtml(sp);
+  const body = window.escapeHtml(String(dialogContent).trim()).replace(/\n/g, '<br>');
+  return `<div class="chat-msg" data-speaker="${name}" style="--sp-hue:${hue}"><div class="chat-avatar" aria-hidden="true">${window.escapeHtml(sp.slice(0, 1))}</div><div class="chat-bubble"><div class="chat-name">${name}</div><div class="chat-text">${body}</div></div></div>`;
+};
+
+// 對話偵測：『角色名（+說話動詞）：「對話」』
+// - 內文用 lazy，遇到第一個右引號即停 → 多句對話（內含句號）完整保留
+// - 內文允許跨行 → 對話被 LLM 換行也不會斷
+// - 這段必須在「句號分段」之前執行，否則多句對話會被切碎而失去氣泡
+// - 前驅字元不併入 match（前驅若吃掉前一句的右引號，緊接的第二句就永遠配不到）
+const DIALOGUE_REGEX = /[ \t]*(?:[-*•]\s*|\d+[.、]\s*)?([^\s：:「」『』，。！？]{1,16})[：:][ \t]*[「『]([^」』]+?)[」』]/g;
+const DIALOGUE_PREFIX = '\n。；;！？，,『』」';
+
+/**
+ * 由「說話者原文」解析出群聊顯示名稱；失敗回傳 ''（保留原文為敘事）。
+ */
+window.resolveDialogueSpeaker = function(raw) {
+  let sp = window.cleanSpeakerName(raw);
+  if (!sp) {
+    // 「我點點頭：「…」」「我心中一凜：「…」」→ 發話者即宿主本人
+    const s = String(raw || '').trim();
+    if (s.length <= 8 && s.charAt(0) === '我') sp = '我';
+  }
+  return sp;
+};
+
+/**
+ * 敘事格式化處理 (群聊式多人對話渲染)
+ * 流程：1) 抽出所有對話轉成氣泡佔位 2) 句號分段排版 3) 還原氣泡
  */
 window.formatNarrative = function(text) {
   if (!text) return "";
   const cleaned = window.cleanText(text);
-  
-  // 在句號後添加雙換行，但若後方已有換行則跳過
-  let formatted = cleaned.replace(/。([」』"'〉》）］｝]*)(?!\n)/g, '。$1\n\n');
+  const bubbles = [];
+  const stash = (html) => {
+    bubbles.push(html);
+    return `\n\n\u0000${bubbles.length - 1}\u0000\n\n`;
+  };
 
-  // 對話彩色化標記 Regex
-  // 匹配模式：名字 (2-10字) 加上 說/道 或是 冒號，緊接著括號「對話」或『對話』
-  // 例如：提燈女童說道：「這不是真的。」 或 瘋癲的村長：「啊啊！」
-  const dialogRegex = /([\u4e00-\u9fa5A-Za-z0-9]{2,10})(?:說道|冷笑道|嘆道|怒道|問道|答道|說|笑|低語)?[：:「『]([^」』\n]+)[」』]/g;
-  
-  formatted = formatted.replace(dialogRegex, function(match, speaker, dialogContent) {
-    return `<span class="dialog-block" data-speaker="${speaker.trim()}"><span class="speaker-name">${speaker.trim()}</span>：「${dialogContent.trim()}」</span>`;
+  // 1. 對話先抽出（契約獨立行 + 舊式行內）
+  let extracted = '';
+  let cursor = 0;
+  DIALOGUE_REGEX.lastIndex = 0;
+  let m;
+  while ((m = DIALOGUE_REGEX.exec(cleaned)) !== null) {
+    const idx = m.index;
+    // 前驅字元（略過行首空白）必須是行首或分隔符，避免中途硬切出假對話
+    let p = idx - 1;
+    while (p >= 0 && (cleaned.charAt(p) === ' ' || cleaned.charAt(p) === '\t')) p--;
+    const prev = p < 0 ? '' : cleaned.charAt(p);
+    const prefixOk = p < 0 || DIALOGUE_PREFIX.indexOf(prev) !== -1;
+    const sp = prefixOk ? window.resolveDialogueSpeaker(m[1]) : '';
+    const dc = String(m[2] || '').trim();
+    if (!sp || !dc) continue;
+    extracted += cleaned.slice(cursor, idx) + stash(window.buildChatBubble(sp, dc));
+    cursor = idx + m[0].length;
+  }
+  extracted += cleaned.slice(cursor);
+
+  // 2. 句號後添加雙換行（對話內文已抽出，不會被切碎）；後方已有換行則跳過
+  const formatted = extracted
+    .replace(/。([」』"'〉》）］｝]*)(?!\n)/g, '。$1\n\n')
+    .replace(/\n{3,}/g, '\n\n');
+
+  // 3. 剝除契約格式殘留的外層『』（regex 只消耗「角色名：「內容」」，外殼會遺留在氣泡前後）
+  const unwrapped = formatted
+    .replace(/『\s*(\u0000\d+\u0000)/g, '\n\n$1')
+    .replace(/(\u0000\d+\u0000)\s*』/g, '$1\n\n')
+    .replace(/\n{3,}/g, '\n\n');
+
+  // 4. 還原氣泡（前後各留空行，讓 marked 視為 HTML 區塊）
+  return unwrapped.replace(/\u0000(\d+)\u0000/g, function(_, idx) {
+    return bubbles[Number(idx)] || '';
   });
+};
 
-  return formatted;
+/**
+ * 特殊情報塊 (肉身閃回 / 破綻反應 / 遠方傳聞)：群聊時間線上的系統插播
+ */
+window.formatSpecialBlock = function(kind, text) {
+  const t = window.escapeHtml(String(text || '').trim());
+  if (!t) return '';
+  if (kind === 'flashback') {
+    return `\n\n<div class="special-block flashback-block"><span class="special-tag">[FLASHBACK]</span><span>肉身記憶閃回：${t}</span></div>`;
+  }
+  if (kind === 'dissonance') {
+    return `\n\n<div class="special-block dissonance-block"><span class="special-tag">[DISSONANCE]</span><span>破綻反應：${t}</span></div>`;
+  }
+  if (kind === 'ending') {
+    return `<div class="special-block ending-block"><span class="special-tag">[ENDING]</span><span>${t}</span></div>`;
+  }
+  return `\n\n<div class="special-block rumor-block"><span class="special-tag">[RUMOR]</span><span>遠方異動：${t}</span></div>`;
 };
 
 window.extractJson = function(text) {
@@ -90,6 +223,19 @@ window.extractNarrative = function(text) {
 
 window.extractMeta = function(text) {
   if (!text || !text.trim()) return null;
+  // 新版 transmigration 欄位：player_scene / suggested_options / attitude_changes / npc_movements / dissonance_delta
+  // 舊版欄位：options / hp / impact / scene / meta
+  const isMetaLike = (data) => {
+    if (!data || typeof data !== 'object') return false;
+    if (data.meta) return true;
+    if (data.options || data.suggested_options) return true;
+    if (data.hp !== undefined || data.sp !== undefined || data.threat !== undefined) return true;
+    if (data.impact !== undefined) return true;
+    if (data.scene !== undefined || data.player_scene !== undefined) return true;
+    if (Array.isArray(data.attitude_changes) || Array.isArray(data.npc_movements)) return true;
+    if (data.dissonance_delta !== undefined || data.dissonance !== undefined) return true;
+    return false;
+  };
   try {
     let clean = text.trim();
     if (clean.startsWith('```')) {
@@ -97,7 +243,7 @@ window.extractMeta = function(text) {
     }
     const data = JSON.parse(clean);
     if (data.meta) return data.meta;
-    if (data.options || data.hp !== undefined || data.impact !== undefined) return data;
+    if (isMetaLike(data)) return data;
     return null;
   } catch (e) {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -105,7 +251,7 @@ window.extractMeta = function(text) {
       try {
         const data = JSON.parse(jsonMatch[0]);
         if (data.meta) return data.meta;
-        if (data.options || data.hp !== undefined || data.impact !== undefined) return data;
+        if (isMetaLike(data)) return data;
       } catch (_) {}
     }
     return null;
@@ -145,13 +291,15 @@ window.splitMetaBlock = function(text) {
 };
 
 /**
- * 數值變動解析器 (相容舊格式；新管線請用 validators.js 的 parseDeltaNumberStrict)
+ * @deprecated 相容舊格式；新管線請用 validators.js 的 parseDeltaNumberStrict。
  * 相容："+10"/"-5" 相對增量；"90/100" 絕對值；裸 "90" 視為絕對值（已棄用，歧義來源）。
  * 新契約要求 LLM 一律回顯式 +/- 或 A/B 格式；裸數字由 validator 拒收，避免「20 是剩20還是扣20」。
+ * 保留供舊模型輸出 / 舊存檔結算（game.js applyImpact）相容，每次調用裸數字分支會 console.warn。
  */
 window.parseDeltaNumber = function(raw, current) {
   if (raw === undefined || raw === null) return undefined;
   if (typeof raw === 'number' && Number.isFinite(raw)) {
+    if (!window.__parseDeltaWarned) { window.__parseDeltaWarned = true; console.warn('[deprecated] parseDeltaNumber 數字型裸值分支已棄用，請改用 parseDeltaNumberStrict（validators.js）。'); }
     // 數字型裸值：向下相容視為絕對值
     return raw - current;
   }
@@ -172,8 +320,13 @@ window.parseDeltaNumber = function(raw, current) {
 
   // 純數字且無正負號，視為絕對值（新數值），轉換成相對於當前的增量 delta
   // 注意：此分支為歧義根源，保留僅為相容舊模型輸出；新契約已要求顯式符號。
+  // @deprecated：命中此分支代表 LLM 回了裸數字，新管線應經 parseDeltaNumberStrict 拒收/降級為 +0。
   const v = Number(str);
-  return Number.isFinite(v) ? v - current : undefined;
+  if (Number.isFinite(v)) {
+    if (!window.__parseDeltaBareWarned) { window.__parseDeltaBareWarned = true; console.warn('[deprecated] parseDeltaNumber 裸數字字串分支已棄用（歧義），請改用 parseDeltaNumberStrict（validators.js）。'); }
+    return v - current;
+  }
+  return undefined;
 };
 
 /**
@@ -372,11 +525,11 @@ window.parseOptionRequirement = function(optionText, player) {
     const reqVal = parseInt(thresholdMatch[2], 10);
 
     let currentVal = 0;
-    if (statName === '生命' || statName === 'hp' || statName === 'HP') {
+    if (statName === '生命' || statName === '生機' || statName === 'hp' || statName === 'HP' || statName === '氣血') {
       currentVal = player.hp || 0;
-    } else if (statName === '靈力' || statName === 'sp' || statName === 'SP') {
+    } else if (statName === '靈力' || statName === '靈息' || statName === 'sp' || statName === 'SP' || statName === '真元') {
       currentVal = player.sp || 0;
-    } else if (statName === '業力' || statName === '威脅' || statName === 'threat') {
+    } else if (statName === '業力' || statName === '威脅' || statName === '天劫預兆' || statName === 'threat') {
       currentVal = player.threat || 0;
     } else if (player.abilities && player.abilities[statName] !== undefined) {
       const a = player.abilities[statName];
@@ -403,11 +556,11 @@ window.parseOptionRequirement = function(optionText, player) {
   }
 
   // 2. 資源消耗格式：【消耗 20 靈力】或【消耗 15 生命】
-  const costMatch = optionText.match(/【消耗\s*(\d+)\s*(靈力|生命|真元|氣血|SP|HP)】/i);
+  const costMatch = optionText.match(/【消耗\s*(\d+)\s*(靈力|靈息|生命|生機|真元|氣血|SP|HP)】/i);
   if (costMatch) {
     const cost = parseInt(costMatch[1], 10);
     const typeStr = costMatch[2];
-    const isSp = /靈力|真元|SP/i.test(typeStr);
+    const isSp = /靈力|靈息|真元|SP/i.test(typeStr);
     const poolVal = isSp ? (player.sp || 0) : (player.hp || 0);
     const poolName = isSp ? '靈力' : '生命';
 

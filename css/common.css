@@ -1,17 +1,65 @@
-:root {
-  --bg-dark: #121A12;
-  --primary: #1B261B;
-  --secondary: #432E23;
-  --accent: #e2c080;
-  --accent-soft: #8BA888;
-  --text-main: #FDFBF7;
-  --text-muted: #B4B9A8;
-  --glass: rgba(27, 38, 27, 0.98);
-  --glass-border: rgba(139, 168, 136, 0.2);
-  --danger: #963D3D;
+/* ========== OpenDesign 雙主題語義變數 (Light 預設 / Dark Obsidian) ========== */
+:root,
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-subtle: #f1f5f9;
+  --border: #e2e8f0;
+  --border-subtle: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-ink: #ffffff;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  /* 天衍品牌點綴 (保留玄幻識別，不取代語義色) */
+  --brand-gold: #b98a2f;
+  --brand-gold-soft: rgba(185, 138, 47, 0.12);
+  --brand-soul: #7c3aed;
+  --brand-soul-soft: rgba(124, 58, 237, 0.08);
+  /* 舊變數相容別名 */
+  --bg-dark: var(--bg);
+  --primary: var(--surface);
+  --secondary: var(--surface-subtle);
+  --accent-soft: var(--border-subtle);
+  --text-main: var(--text-primary);
+  --glass: var(--surface);
+  --glass-border: var(--border);
   --font-heading: 'Bodoni Moda', serif;
-  --font-body: 'Jost', sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, 'Noto Sans TC', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="dark"] {
+  --bg: #09090b;
+  --surface: #121215;
+  --surface-subtle: #18181b;
+  --border: #27272a;
+  --border-subtle: #1f1f23;
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-ink: #ffffff;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --brand-gold: #e2c080;
+  --brand-gold-soft: rgba(226, 192, 128, 0.12);
+  --brand-soul: #e0b0ff;
+  --brand-soul-soft: rgba(224, 176, 255, 0.08);
+  --bg-dark: var(--bg);
+  --primary: var(--surface);
+  --secondary: var(--surface-subtle);
+  --accent-soft: var(--border-subtle);
+  --text-main: var(--text-primary);
+  --glass: rgba(18, 18, 21, 0.96);
+  --glass-border: var(--border);
 }
 
 * {
@@ -21,14 +69,110 @@
 }
 
 body {
-  background-color: var(--bg-dark);
-  color: var(--text-main);
+  background-color: var(--bg);
+  color: var(--text-primary);
   font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
   overflow: hidden;
   height: 95dvh;
   width: 100vw;
-  background-image: linear-gradient(135deg, #121A12 0%, #1B261B 100%);
 }
+
+[data-theme="dark"] body,
+body.premium-dark {
+  background-image: linear-gradient(135deg, #09090b 0%, #121215 100%);
+}
+
+/* ========== OpenDesign Sleek Scrollbar (全域) ========== */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface-subtle, #f1f5f9);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle, #cbd5e1);
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: background 0.2s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted, #94a3b8);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) transparent;
+}
+
+/* 語義徽章 (取代 emoji 狀態) */
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+/* 輸入框 focus ring (OpenDesign 無障礙對比) */
+.input-group input:focus,
+.input-group select:focus,
+.input-group textarea:focus,
+#player-action:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  outline: none;
+}
+
+.field-hint {
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ========== 1-Click 複製回饋 + Toast ========== */
+.copied {
+  border-color: var(--success) !important;
+  color: var(--success) !important;
+}
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999;
+  pointer-events: none;
+}
+.toast {
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  max-width: 320px;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.toast-success { border-left-color: var(--success); }
+.toast-error { border-left-color: var(--danger); }
 
 .glass {
   background: var(--glass);

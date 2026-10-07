@@ -130,15 +130,17 @@
         });
       }
     });
-    // options 數量
-    if (meta.options !== undefined && !Array.isArray(meta.options)) {
+    // options 數量（新版相容 suggested_options 別名；normalize 後多為 options）
+    var opts = meta.options !== undefined ? meta.options : meta.suggested_options;
+    if (opts !== undefined && !Array.isArray(opts)) {
       return { ok: false, reason: 'options must be array' };
     }
-    if (Array.isArray(meta.options) && (meta.options.length < 1 || meta.options.length > 5)) {
+    if (Array.isArray(opts) && (opts.length < 1 || opts.length > 5)) {
       return { ok: false, reason: 'options count out of range' };
     }
-    // scene 白名單
-    var norm = window.normalizeSceneKey(meta.scene, world);
+    // scene 白名單（新版相容 player_scene 別名；normalize 後多為 scene）
+    var sceneRaw = (meta.scene !== undefined && meta.scene !== null) ? meta.scene : meta.player_scene;
+    var norm = window.normalizeSceneKey(sceneRaw, world);
     var chk = window.validateSceneMove(norm, currentScene, world);
     if (!chk.ok) return chk;
     return { ok: true, normalizedScene: norm };
@@ -157,5 +159,104 @@
     }
     if (/^[-+]\d+(\.\d+)?$/.test(str)) return { ok: true, kind: 'delta', delta: Number(str) };
     return { ok: false, reason: 'bare number ambiguous, require explicit +/- or A/B format: ' + str };
+  };
+
+  // ---- 5. 結局評估：條件結局（天眼/悟性/威脅/造訪）命中即收束 ----
+  // 條件語法：「名 >= 40 && 名 < 30 && visited('場景名')」；default 結局不自動觸發
+  // visited 同時比對場景key與場景title（visitedScenes 存 key，條件多寫 title）
+  window.checkStoryEnding = function (game, world) {
+    if (!game || !world || !world.endings) return null;
+    var p = game.player || {};
+    var ab = p.abilities || {};
+    var statVal = function (name) {
+      var n = String(name).trim();
+      if (n === 'threat' || n === '業力' || n === '威脅' || n === '天劫預兆') return Number(p.threat) || 0;
+      if (n === 'hp' || n === 'HP' || n === '氣血' || n === '生命' || n === '生機') return Number(p.hp) || 0;
+      if (n === 'sp' || n === 'SP' || n === '靈力' || n === '靈息') return Number(p.sp) || 0;
+      var v = ab[n];
+      return (v && typeof v === 'object') ? (Number(v.val) || 0) : (Number(v) || 0);
+    };
+    // 旗標查詢：game.story_flags（Meta 寫入）優先，其次 game.flags（劇本初始旗標）
+    var flagVal = function (name) {
+      var n = String(name).trim();
+      if (!n) return undefined;
+      if (game.story_flags && game.story_flags[n] !== undefined) return game.story_flags[n];
+      if (game.flags && game.flags[n] !== undefined) return game.flags[n];
+      return undefined;
+    };
+    var isTruthyFlag = function (v) {
+      return v === true || v === 1 || v === 'true' || v === '1';
+    };
+    var visited = function (name) {
+      var list = game.visitedScenes || [];
+      var scenes = world.scenes || {};
+      return list.some(function (k) {
+        if (k === name) return true;
+        var sc = scenes[k];
+        return !!sc && (sc.title === name || String(k).indexOf(name) !== -1);
+      });
+    };
+    var evalClause = function (clause) {
+      var c = String(clause).trim();
+      if (!c) return true;
+      if (/^default$/i.test(c)) return true;
+      var vm = c.match(/^visited\(\s*['"](.+?)['"]\s*\)$/);
+      if (vm) return visited(vm[1]);
+      // 布林旗標：name == false / name != true（結局如 chainWeakened == false）
+      // 未設定的布林旗標視為 false（劇本初始 flags 多為空，「未削弱鐵鎖」即 == false），
+      // 否則玩家不經 LLM 明示回填就永遠進不了陷阱結局。
+      var fm = c.match(/^(.+?)\s*(==|!=)\s*(true|false)\s*$/i);
+      if (fm) {
+        var fv = flagVal(fm[1]);
+        var want = /^true$/i.test(fm[3]);
+        var got = fv === undefined ? false : isTruthyFlag(fv);
+        return fm[2] === '==' ? got === want : got !== want;
+      }
+      // 裸旗標：acceptedHeavenSeal 或 !flag
+      if (/^[!～~]/.test(c)) {
+        var bv = flagVal(c.replace(/^[!～~]\s*/, ''));
+        if (bv === undefined) return false;
+        return !isTruthyFlag(bv);
+      }
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(c)) {
+        var bv2 = flagVal(c);
+        if (bv2 === undefined) return false;
+        return isTruthyFlag(bv2);
+      }
+      var cm = c.match(/^(.+?)\s*(>=|<=|==|>|<)\s*(-?\d+(?:\.\d+)?)$/);
+      if (cm) {
+        var name = cm[1].trim();
+        var target = Number(cm[3]);
+        var op = cm[2];
+        // 內建數值 / 能力優先；其餘名稱若為旗標（如 heaven_alert >= 5）則取旗標值
+        var val;
+        if (ab[name] !== undefined || /^(threat|業力|威脅|天劫預兆|hp|HP|氣血|生命|生機|sp|SP|靈力|靈息)$/.test(name)) {
+          val = statVal(name);
+        } else {
+          var f = flagVal(name);
+          val = (f === undefined || f === null || typeof f === 'object') ? 0 : (Number(f) || 0);
+        }
+        if (op === '>=') return val >= target;
+        if (op === '<=') return val <= target;
+        if (op === '>') return val > target;
+        if (op === '<') return val < target;
+        return val === target;
+      }
+      return false;
+    };
+    var evalCond = function (cond) {
+      if (cond === undefined || cond === null) return false;
+      return String(cond).split('||').some(function (orPart) {
+        return orPart.split('&&').every(evalClause);
+      });
+    };
+    var keys = Object.keys(world.endings);
+    for (var i = 0; i < keys.length; i++) {
+      var e = world.endings[keys[i]];
+      var cond = (e && e.condition) || '';
+      if (!cond || /^default$/i.test(String(cond).trim())) continue;
+      if (evalCond(cond)) return { id: keys[i], condition: cond, result: (e && e.result) || '' };
+    }
+    return null;
   };
 })();

@@ -9,6 +9,10 @@ window.SETTINGS = {
     gameSave: 'tianyan_game_save',
     selectedModel: 'tianyan_selected_model',
     cachedModels: 'tianyan_cached_models',
+    customChatEndpoint: 'tianyan_custom_chat_endpoint',
+    customModelsEndpoint: 'tianyan_custom_models_endpoint',
+    customProxyUrl: 'tianyan_custom_proxy_url',
+    theme: 'tianyan_theme',
   },
 
   ENDPOINTS: {
@@ -107,22 +111,84 @@ window.CONFIG = {
   set useProxy(val) {
     localStorage.setItem(window.SETTINGS.STORAGE_KEYS.useProxy, val ? 'true' : 'false');
   },
+  get customProxyUrl() {
+    try {
+      return (localStorage.getItem(window.SETTINGS.STORAGE_KEYS.customProxyUrl) || '').trim();
+    } catch (_) { return ''; }
+  },
+  set customProxyUrl(val) {
+    try {
+      if (val && val.trim()) localStorage.setItem(window.SETTINGS.STORAGE_KEYS.customProxyUrl, val.trim());
+      else localStorage.removeItem(window.SETTINGS.STORAGE_KEYS.customProxyUrl);
+    } catch (_) {}
+  },
   get proxyUrl() {
+    if (this.customProxyUrl) {
+      const p = this.customProxyUrl.replace(/\/+$/, '');
+      return p.endsWith('/chat/completions') ? p : `${p}/v1/chat/completions`;
+    }
     return this.isLocal
       ? window.SETTINGS.ENDPOINTS.localProxy
       : window.SETTINGS.ENDPOINTS.remoteProxy;
   },
+  get customChatEndpoint() {
+    try {
+      return (localStorage.getItem(window.SETTINGS.STORAGE_KEYS.customChatEndpoint) || '').trim();
+    } catch (_) { return ''; }
+  },
+  set customChatEndpoint(val) {
+    try {
+      if (val && val.trim()) localStorage.setItem(window.SETTINGS.STORAGE_KEYS.customChatEndpoint, val.trim());
+      else localStorage.removeItem(window.SETTINGS.STORAGE_KEYS.customChatEndpoint);
+    } catch (_) {}
+  },
+  get customModelsEndpoint() {
+    try {
+      return (localStorage.getItem(window.SETTINGS.STORAGE_KEYS.customModelsEndpoint) || '').trim();
+    } catch (_) { return ''; }
+  },
+  set customModelsEndpoint(val) {
+    try {
+      if (val && val.trim()) localStorage.setItem(window.SETTINGS.STORAGE_KEYS.customModelsEndpoint, val.trim());
+      else localStorage.removeItem(window.SETTINGS.STORAGE_KEYS.customModelsEndpoint);
+    } catch (_) {}
+  },
   get modelsUrl() {
+    if (this.customModelsEndpoint) return this.customModelsEndpoint;
+    if (this.customProxyUrl) {
+      const p = this.customProxyUrl.replace(/\/+$/, '');
+      return p.endsWith('/models') ? p : `${p}/v1/models`;
+    }
     if (this.useProxy) {
       return this.isLocal ? window.SETTINGS.ENDPOINTS.localModels : window.SETTINGS.ENDPOINTS.remoteModels;
     }
     return window.SETTINGS.ENDPOINTS.directModels;
   },
   get directUrl() {
-    return window.SETTINGS.ENDPOINTS.direct;
+    return this.customChatEndpoint || window.SETTINGS.ENDPOINTS.direct;
+  },
+  getMultiagentUrl(path) {
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    if (this.isLocal) {
+      return cleanPath;
+    }
+    try {
+      const p = this.customProxyUrl || this.proxyUrl;
+      if (p && (p.startsWith('http://') || p.startsWith('https://'))) {
+        const u = new URL(p);
+        return `${u.origin}${cleanPath}`;
+      }
+    } catch (_) {}
+    try {
+      const defaultWorker = new URL(window.SETTINGS.ENDPOINTS.remoteProxy).origin;
+      return `${defaultWorker}${cleanPath}`;
+    } catch (_) {}
+    return cleanPath;
   },
   get candidateModelUrls() {
+    // 使用者自訂端點永遠優先第一順位
     const urls = [this.modelsUrl];
+    if (this.customModelsEndpoint && !urls.includes(this.customModelsEndpoint)) urls.unshift(this.customModelsEndpoint);
     if (this.isLocal) {
       if (!urls.includes(window.SETTINGS.ENDPOINTS.localModels)) urls.push(window.SETTINGS.ENDPOINTS.localModels);
       if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteModels)) urls.push(window.SETTINGS.ENDPOINTS.remoteModels);
@@ -134,7 +200,10 @@ window.CONFIG = {
     return urls;
   },
   get candidateProxyUrls() {
-    const urls = [this.proxyUrl];
+    // 使用者自訂 chat 端點優先第一順位，其次才是 proxyUrl 預設
+    const urls = [];
+    if (this.customChatEndpoint) urls.push(this.customChatEndpoint);
+    urls.push(this.proxyUrl);
     if (this.isLocal) {
       if (!urls.includes(window.SETTINGS.ENDPOINTS.localProxy)) urls.push(window.SETTINGS.ENDPOINTS.localProxy);
       if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteProxy)) urls.push(window.SETTINGS.ENDPOINTS.remoteProxy);
@@ -172,6 +241,11 @@ window.selectors = {
   get apiKey() { return document.getElementById('api-key'); },
   get modelSelect() { return document.getElementById('model-select'); },
   get proxyToggle() { return document.getElementById('proxy-toggle'); },
+  get customChatEndpoint() { return document.getElementById('custom-chat-endpoint'); },
+  get customModelsEndpoint() { return document.getElementById('custom-models-endpoint'); },
+  get customProxyUrl() { return document.getElementById('custom-proxy-url'); },
+  get btnResetEndpoint() { return document.getElementById('btn-reset-endpoint'); },
+  get btnCopySaveCode() { return document.getElementById('copy-save-code'); },
   get saveModal() { return document.getElementById('save-modal'); },
   get saveModalTitle() { return document.getElementById('save-modal-title'); },
   get saveCode() { return document.getElementById('save-code'); },
@@ -197,6 +271,8 @@ window.selectors = {
 };
 
 // 提示詞與暫存變數
+// @deprecated 舊三段全域：buildUnifiedStorySystem 已改走 narrative_transmigration /
+// director_transmigration 精簡版；此三全域僅保留作舊劇本回退（無 transmigration 時）與舊存檔相容，勿在新管線直接組裝。
 window.DIRECTOR_PROMPT = "";
 window.NARRATIVE_PROMPT = "";
 window.META_PROMPT = "";

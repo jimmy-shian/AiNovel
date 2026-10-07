@@ -35,11 +35,11 @@ python server.py
 
 | 場景 | 使用端點 |
 | --- | --- |
-| 本地 | `http://127.0.0.1:4444/v1/...`（`localProxy` / `localModels`） |
-| 線上 Pages | 你的 Worker（`remoteProxy` / `remoteModels`） |
-| 除錯直連 | `https://integrate.api.nvidia.com/v1/...`（需關閉「隱匿蹤跡」，不建議） |
+| 本地 | `http://127.0.0.1:4444/v1/...`（`localProxy` / `localModels`，支援 `agent_flow_engine.py`） |
+| 線上 Pages | 你的 Worker（`remoteProxy` / `remoteModels`，內建 JavaScript 移植版因果網世界引擎） |
+| 除錯直連 | `https://integrate.api.nvidia.com/v1/...` 或任意相容 API（需關閉「隱匿蹤跡」，不建議） |
 
-> 詳細步驟見 [`cloudflare.md`](./cloudflare.md)。要點：將 `cloudflare_worker.js` 貼上 Worker 後，把 `js/config.js` 的 `ENDPOINTS.remoteProxy` / `remoteModels` 改為你的 Worker 網域。
+> 詳細步驟見 [`cloudflare.md`](./cloudflare.md)。要點：Worker 已內建完整多代理人世界引擎，並支援 `X-Target-URL` 轉發任意服務商（NVIDIA / DeepSeek / OpenAI / OpenRouter 等）。將 `cloudflare_worker.js` 貼上 Worker 後，線上版即具備 100% 完整戰力。
 
 ---
 
@@ -73,8 +73,8 @@ python server.py
 | `js/ui.js` | 渲染、打字機、快捷行動 |
 | `app.js` | 初始化、設定儲存、事件綁定 |
 | `server.py` | 本地代理 + 靜態託管（`:4444`） |
-| `cloudflare_worker.js` | 線上代理（Worker 版 `server.py`） |
-| `stories/*.json` → `build_world.py` → `world.json` | 劇本源檔 → 編譯索引（`world.json` 為產物，勿手改） |
+| `cloudflare_worker.js` | 線上代理與世界引擎（Worker 版 `server.py` + `agent_flow_engine.py`） |
+| `stories/*.json` → `build_world.py` → `world.json` | 劇本源檔 → 編譯索引（`world.json` 為產物，勿手改；`stories/_legacy/` 已棄用封存，不參與編譯） |
 | `tests/run_tests.py` | 全量校驗（含重建 `world.json`） |
 
 <a id="pipeline"></a>
@@ -118,9 +118,10 @@ python tests/run_tests.py  # 必跑：先重建 world.json 再全量校驗
 | --- | --- | --- |
 | `title`、`description` | 是 | 顯示用標題與簡介 |
 | `globalPrompt`、`world_rules`、`main_mystery`、`main_arc` | 是 | 世界觀與主線，組進 story prompt |
-| `prompts.director`、`prompts.narrative`、`prompts.meta` | 是 | 三段系統提示詞（director 職責已併入 narrative，保留欄位供相容） |
+| `prompts.director`、`prompts.narrative`、`prompts.meta` | 是 | 三段系統提示詞（director 職責已併入 narrative，保留欄位供相容；新管線 system prompt 只走 `narrative_transmigration` / `director_transmigration` 精簡版） |
 | `scenes` | 是 | 以場景 key 為鍵的字典；key 即遷移白名單 |
-| `scenes[].title`、`location_core`、`scene_exit`、`npcs`、`choices` | 是 | `scene_exit` 只能填其他場景 key；`choices` 為預設選項參考 |
+| `scenes[].title`、`location_core`、`scene_exit`、`choices` | 是 | `scene_exit` 只能填其他場景 key；`choices` 為預設選項參考 |
+| `scenes[].npcs` | 否（已棄用） | 舊陣列，僅作無 `characters` 舊劇本回退（見 `getSceneNpcFallbackText`）；真相來源為 `characters` + `npc_state` |
 | `startingState` | 是 | `{ scene, player:{ name, hp, sp, threat, abilities }, history, current_arc, story_flags }` |
 | `endings`、`coreMystery` | 否 | 結局與謎團設定 |
 
@@ -139,8 +140,10 @@ python tests/run_tests.py  # 必跑：先重建 world.json 再全量校驗
 ### 新增劇本
 
 1. 複製既有劇本為 `stories/<新id>.json`，改 `title` 與 `startingState.scene`（須存在於 `scenes`）。
-2. 確認三段 `prompts` 含上表關鍵字。
+2. 確認三段 `prompts` 含上表關鍵字（新劇本另需 `narrative_transmigration` / `director_transmigration` / `meta_transmigration` + `characters`）。
 3. `python tests/run_tests.py` 全綠後再 commit。
+
+> 已棄用：`stories/_legacy/tianyan.json`（單代理舊劇本，`world.json` 未引用，以 `git mv` 封存，歷史可追；不參與 `build_world.py` 編譯）。
 
 ---
 

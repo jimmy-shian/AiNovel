@@ -1,42 +1,106 @@
-# Cloudflare Worker 部署指南
+# Cloudflare Worker 全功能邊緣部署指南 (天衍九州)
 
-線上版（GitHub Pages，HTTPS）無法直連本地代理或 NVIDIA API，需經 HTTPS Worker 轉發以解決 CORS。
+線上版（GitHub Pages，HTTPS）原生無 Python 後端，且瀏覽器直連外部 AI 服務商會遭遇 CORS 阻擋。
+透過將 **多代理人世界引擎 (`agent_flow_engine.py`)** 與 **API 跨域轉發代理** 完整實作於 `cloudflare_worker.js`，線上版即可具備 100% 完整功力！
 
-> 原始碼唯一來源為 `cloudflare_worker.js`，本文件不再複製程式碼。改 Worker 請只改該檔。
+> **原始碼唯一來源為 `cloudflare_worker.js`**。修改 Worker 功能請直接維護該檔。
 
-## 端點
+---
 
-| 方法 | 路徑 | 用途 |
+## 系統架構分工
+
+| 元件 | 角色 | 功能說明 |
 | --- | --- | --- |
-| `GET` | `/` | 健康檢查頁 |
-| `GET` | `/v1/models` | 轉發至 NVIDIA，取得可用模型清單 |
-| `POST` | `/v1/chat/completions` | 轉發劇情推演（含 SSE 串流） |
-| `OPTIONS` | `*` | CORS 預檢 |
+| **GitHub Pages** | 靜態前端託管 | 託管 `index.html`、`js/`、`css/`、`stories/`，由 GitHub Actions 自動構建部署。 |
+| **Cloudflare Worker** | 邊緣世界引擎 + 萬能 API 代理 | 1. 執行因果網世界引擎（時鐘推進、NPC漫遊、破綻檢測、魂穿奪舍）<br>2. 跨域免 CORS 轉發任意 LLM 服務商（NVIDIA、DeepSeek、OpenAI、OpenRouter 等） |
+| **本地 `server.py`** | 本地開發外掛 | 本地單機測試（FastAPI + Uvicorn），提供 `http://127.0.0.1:4444` 開箱即用環境。 |
 
-轉發時僅透傳 `Authorization` / `Content-Type` / `Accept`，其餘 header 不轉發。
+---
 
-## 部署
+## Worker 支援端點
 
-1. 登入 Cloudflare Dashboard → **Workers & Pages**，建立或開啟 Worker。
-2. **Edit code** → 將 `cloudflare_worker.js` 全文貼上 → **Deploy**。
-3. 開啟 `https://<你的worker>.workers.dev/`，看到「天機代理運作正常」即成功。
-4. 將 `js/config.js` 的 `ENDPOINTS.remoteProxy` / `remoteModels` 改為你的 Worker 網域，commit 後即對線上版生效。
+| 方法 | 路徑 | 類型 | 功能說明 |
+| --- | --- | --- | --- |
+| `GET` | `/` | 狀態監控 | 健康檢查頁面，顯示已啟用之功能與端點。 |
+| `GET` | `/v1/models` | LLM 代理 | 動態模型清單查詢，支援透傳 `X-Target-URL` 自訂端點。 |
+| `POST` | `/v1/chat/completions` | LLM 代理 | 劇情推演對話與 SSE 串流轉發，支援透傳 `X-Target-URL` 自訂端點。 |
+| `GET` | `/api/multiagent/characters` | 世界引擎 | 查詢當前劇本所有可魂穿宿主清單（支援 `?story_id=`）。 |
+| `POST` | `/api/multiagent/transmigrate` | 世界引擎 | 玩家神魂奪舍指定角色，回傳宿主感官、位置與開局描述。 |
+| `POST` | `/api/multiagent/reset` | 世界引擎 | 重置世界時鐘 (`tick=1`)、天道警戒 (`alert=10`) 與全員初始站位。 |
+| `POST` | `/api/multiagent/tick` | 世界引擎 | 推進 1 個世界滴答，運算言行破綻偏離度、NPC空間漫遊、進場傳聞。 |
+| `OPTIONS` | `*` | CORS | 預檢回應，開放跨域與自訂 Header。 |
 
-前端路由邏輯（`js/config.js`）：`localhost` / `127.0.0.1` / `file:` 視為本地，走 `localProxy`；其餘走 `remoteProxy`。呼叫失敗時按 `candidateProxyUrls` / `candidateModelUrls` 順序自動換端點重試。
+---
 
-## 驗證
+## 自訂 API 端點與跨服務商支援
+
+本 Worker 不僅限於 NVIDIA NIM，更能作為任意 OpenAI 相容服務商的免 CORS 代理通道：
+
+1. **自訂目標 Header**：
+   - `X-Target-URL`：指定上游目標完整網址（例：`https://api.deepseek.com/chat/completions` 或 `https://api.openai.com/v1/chat/completions`）。
+   - `X-Base-URL`：指定上游基礎網址（例：`https://openrouter.ai/api/v1`）。
+2. **前端設定介面**：
+   - 點擊齒輪進入「冥想配置」：
+     - **API Key**：輸入對應服務商的金鑰。
+     - **自訂 Worker / 代理服務網址**：填入你的 Worker 網址（例如 `https://<你的worker>.workers.dev`）。
+     - **自訂 Chat 端點**：填入如 `https://api.deepseek.com/chat/completions`。
+     - **隱匿蹤跡 (勾選)**：前端會自動請求你的 Worker，Worker 透過 `X-Target-URL` 免 CORS 轉發至 DeepSeek/OpenAI。
+
+---
+
+## 部署步驟
+
+### 方式 A：Cloudflare Dashboard 網頁部署（最推薦，1 分鐘完成）
+
+1. 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/) → 進入 **Workers & Pages**。
+2. 點擊 **Create Application** → **Create Worker**（或開啟已存在的 Worker）。
+3. 命名 Worker（例如 `tianyan-worker`）並點擊 **Deploy**。
+4. 點擊 **Edit code**：
+   - 將本專案中的 `cloudflare_worker.js` **全文複製並覆蓋貼上**。
+5. 點擊右上角 **Deploy** 儲存發布。
+6. 開啟你的 Worker 網址（`https://<你的worker>.workers.dev/`），看到「天機代理 & 因果網世界引擎 運作正常 ⚡」即代表部署成功！
+7. （可選）將 `js/config.js` 中的 `remoteProxy` / `remoteModels` 改為你的 Worker 網址，或直接在網頁右上角齒輪設定中輸入。
+
+### 方式 B：使用 Wrangler CLI 部署
+
+若本機已安裝並登入 Wrangler：
 
 ```bash
-curl https://<你的worker>.workers.dev/v1/models \
-  -H "Authorization: Bearer <NVIDIA_KEY>"
+# 1. 登入 Cloudflare 帳號
+npx wrangler login
+
+# 2. 或使用 Cloudflare API Token 部署
+$env:CLOUDFLARE_API_TOKEN="<你的_CLOUDFLARE_API_TOKEN>"
+npx wrangler deploy cloudflare_worker.js --name tianyan-worker --compatibility-date 2024-01-01
 ```
 
-應回傳 `{"data": [{"id": "..."}, ...]}`。若回 `404` 為路徑錯誤，`502` 為 Worker 轉發異常（看 Worker Logs）。
+---
 
-## 與 server.py 的對應
+## 驗證測試
 
-| 場景 | 使用端點 |
-| --- | --- |
-| 本地 `python server.py` | `http://127.0.0.1:4444/v1/...`（`localProxy` / `localModels`） |
-| 線上 Pages | 你的 Worker（`remoteProxy` / `remoteModels`） |
-| 除錯直連 | `https://integrate.api.nvidia.com/v1/...`（需關閉「隱匿蹤跡」，不建議） |
+### 1. 驗證世界引擎角色清單
+```bash
+curl https://<你的worker>.workers.dev/api/multiagent/characters?story_id=tianyan
+```
+應回傳包含「蕭千絕（斷劍豪俠）」等可魂穿角色清單。
+
+### 2. 驗證世界時鐘 Tick 推進與破綻檢測
+```bash
+curl -X POST https://<你的worker>.workers.dev/api/multiagent/tick \
+  -H "Content-Type: application/json" \
+  -d "{\"player_input\":\"哈！老哥笑死我了\",\"meta_output\":{\"player_scene\":\"scene_yuxu_hall\"},\"story_id\":\"tianyan\"}"
+```
+應回傳世界時鐘推進、破綻增量 `dissonance_delta > 0` 與天道警戒累加。
+
+### 3. 驗證 LLM 模型代理 (預設 NVIDIA)
+```bash
+curl https://<你的worker>.workers.dev/v1/models \
+  -H "Authorization: Bearer <YOUR_API_KEY>"
+```
+
+### 4. 驗證自訂服務商轉發 (以 DeepSeek 為例)
+```bash
+curl https://<你的worker>.workers.dev/v1/models \
+  -H "Authorization: Bearer <DEEPSEEK_KEY>" \
+  -H "X-Target-URL: https://api.deepseek.com/models"
+```

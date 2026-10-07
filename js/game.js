@@ -138,18 +138,117 @@ window.applyImpact = function(impact) {
   });
 };
 
+/**
+ * 套用多代理關係裁判輸出：attitude_changes（NPC 對宿主態度）與 npc_movements（NPC 遷移）
+ * 前端 npc_state 為運行時唯一真相（覆蓋 characters 靜態初始值），隨存檔持久化。
+ */
+window.applyMultiagentMeta = function(meta, world) {
+  if (!meta || typeof meta !== 'object') return;
+  const g = window.state.game;
+  if (!g) return;
+  if (!g.npc_state) g.npc_state = {};
+  const chars = world?.characters || {};
+  const resolveId = (idOrName) => {
+    const s = String(idOrName || '').trim();
+    if (!s) return s;
+    if (chars[s]) return s;
+    // 精確 name/title 比對
+    for (const k of Object.keys(chars)) {
+      if (chars[k].name === s || chars[k].title === s) return k;
+    }
+    // 部分包含（LLM 常回短名，如「老毒物」→ name「岑殘生（老毒物）」）
+    for (const k of Object.keys(chars)) {
+      const name = chars[k].name || '';
+      if (name && (name.indexOf(s) !== -1 || s.indexOf(name) !== -1)) return k;
+    }
+    return s;
+  };
+  const baseState = (id) => {
+    if (g.npc_state[id]) return g.npc_state[id];
+    const c = chars[id];
+    return { current_scene: c?.current_scene || c?.initial_scene || null, trust: 0, suspicion: 0.3 };
+  };
+  (meta.attitude_changes || []).forEach(a => {
+    if (!a || !a.npc_id) return;
+    const id = resolveId(a.npc_id);
+    const st = baseState(id);
+    if (a.trust_delta !== undefined) st.trust = Math.max(-1, Math.min(1, st.trust + (Number(a.trust_delta) || 0)));
+    if (a.suspicion_delta !== undefined) st.suspicion = Math.max(0, Math.min(1, st.suspicion + (Number(a.suspicion_delta) || 0)));
+    g.npc_state[id] = st;
+  });
+  (meta.npc_movements || []).forEach(m => {
+    if (!m || !m.npc_id || !m.to_scene) return;
+    if (!world?.scenes?.[m.to_scene]) { console.warn('[applyMultiagentMeta] 非法 NPC 移動已攔截:', m); return; }
+    const id = resolveId(m.npc_id);
+    const st = baseState(id);
+    st.current_scene = m.to_scene;
+    g.npc_state[id] = st;
+  });
+};
+
+/**
+ * 後端 authoritative 對帳：以 step_world_tick 回傳的 npc_locations /
+ * attitude_snapshot 校準 npc_state。僅更新有差異的站位；trust/suspicion
+ * 保留前端本地累加語義（LLM attitude_changes 已累加），僅補齊缺失條目，
+ * 不以快照覆寫本地累加值，避免雙算。
+ */
+window.reconcileNpcStateWithBackend = function(tickInfo, world) {
+  const g = window.state.game;
+  if (!g || !tickInfo) return;
+  if (!g.npc_state) g.npc_state = {};
+  const locs = tickInfo.npc_locations || null;
+  if (locs && typeof locs === 'object') {
+    Object.entries(locs).forEach(([cid, scene]) => {
+      if (!scene) return;
+      if (world?.scenes && !world.scenes[scene]) return; // 非法場景 key 拒收
+      if (cid === g.player?.char_id) return; // 宿主站位以前端場景遷移為準
+      const st = g.npc_state[cid];
+      if (!st) {
+        g.npc_state[cid] = { current_scene: scene, trust: 0, suspicion: 0.3 };
+      } else if (st.current_scene !== scene) {
+        st.current_scene = scene; // 僅差異者更新（進入事件站位以此為準）
+      }
+    });
+  }
+  const snap = tickInfo.attitude_snapshot || null;
+  if (snap && typeof snap === 'object') {
+    Object.entries(snap).forEach(([cid, att]) => {
+      if (!att || typeof att !== 'object') return;
+      if (!g.npc_state[cid]) {
+        g.npc_state[cid] = {
+          current_scene: (locs && locs[cid]) || null,
+          trust: att.trust ?? 0,
+          suspicion: att.suspicion ?? 0.3,
+        };
+      }
+      // 已有條目：保留本地 trust/suspicion 累加值，不覆寫（防雙算）
+    });
+  }
+};
+
 window.handleAction = async function(e, isFirstMove = false, retryAction = null) {
   if (e) e.preventDefault();
   if (window.state.isThinking) return;
 
+  // 防呆門檻：命運已定的故事不再推進
+  if (window.state.game?.finished) {
+    if (window.showToast) window.showToast('此局命運已定。切換因果或重新開始以進入新局。', 'info');
+    return;
+  }
+
   // 防呆門檻：若尚未魂穿選定角色，阻斷操作並強制自動彈出選角視窗
-  if (!window.state.game?.player?.has_selected_character || !window.state.game?.player?.char_id) {
+  // （僅限有 characters 的多代理劇本；無角色的舊劇本直接放行，避免軟鎖）
+  const hasCharacters = Object.keys(window.state.world?.characters || {}).length > 0;
+  if (hasCharacters && (!window.state.game?.player?.has_selected_character || !window.state.game?.player?.char_id)) {
     window.openTransmigrationModal(true);
     return;
   }
 
   if (isFirstMove) {
-    window.selectors.storyLog.innerHTML = '';
+    // 清掉開場前的系統提示/歡迎卡，但保留 data-keep 條目（魂穿奪舍卡）
+    Array.from(window.selectors.storyLog.children).forEach(el => {
+      if (el.getAttribute('data-keep') !== '1') el.remove();
+    });
   }
 
   const action = retryAction !== null ? retryAction : window.selectors.playerAction.value.trim();
@@ -260,17 +359,20 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
         const context = window.buildStrictMetaContext
           ? window.buildStrictMetaContext(isFirstMove ? '開始遊戲' : action, narrative, sceneHint || window.state.game.scene)
           : window.buildMetaPromptContext(isFirstMove ? '開始遊戲' : action);
-        const metaUserContent = window.META_PROMPT
-          .replace('{{CONTEXT}}', context)
-          .replace('{{NARRATIVE}}', narrative);
+        const metaUserContent = (window.state.world?.prompts?.meta_transmigration
+          ? (window.state.world.prompts.meta_transmigration + '\n\n【本輪上下文】\n' + context + '\n\n【本輪敘事】\n' + narrative)
+          : window.META_PROMPT.replace('{{CONTEXT}}', context).replace('{{NARRATIVE}}', narrative));
         const metaText = await window.streamAPICall(
-          '你是《天衍九州》數據裁判。僅回傳 JSON 格式的數值數據。',
+          window.state.world?.prompts?.meta_transmigration
+            ? '你是《天衍九州：因果網》的命數與關係裁判（Meta Arbiter）。僅回傳 JSON。'
+            : '你是《天衍九州》數據裁判。僅回傳 JSON 格式的數值數據。',
           metaUserContent,
           null,
           false,
           'meta'
         );
-        const cand = window.extractMeta(metaText);
+        const rawCand = window.extractMeta(metaText);
+        const cand = window.normalizeTransmigrationMeta ? window.normalizeTransmigrationMeta(rawCand) : rawCand;
         if (cand) {
           // 嚴格校驗：裸數字/超量增量/非法場景直接判失敗並重跑一次（仍在第 2 呼叫預算內）
           const strict = window.validateStrictMeta
@@ -309,15 +411,11 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
   let meta = metaResolved;
   if (!meta) {
     console.warn('[Meta] 數據推演失敗，將使用預設空數據');
-    meta = { impact: {}, suggested_options: ['繼續探索', '觀察四周', '調息打坐', '查看狀態'] };
+    meta = { impact: {}, options: ['繼續探索', '觀察四周', '調息打坐', '查看狀態'] };
   }
 
-  // 最終確認渲染
-  if (narrative) {
-    contentEl.innerHTML = marked.parse(window.formatNarrative(narrative));
-  }
-
-  // 解析 Meta 效果（含場景正規化：title→key）
+  // 解析 Meta 效果（含場景正規化：title→key）。
+  // 必須在 tick 同步之前完成：後端拿到的 player_scene 必須與前端實際套用的場景一致。
   const normScene = window.normalizeSceneKey
     ? window.normalizeSceneKey((meta.scene && meta.scene !== 'null') ? meta.scene : (sceneHint || null), window.state.world)
     : ((meta.scene && meta.scene !== 'null') ? meta.scene : null);
@@ -332,6 +430,49 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
       finalScene = hintNorm;
     }
   }
+  meta.scene = finalScene || null;
+
+  // 前端套用 NPC 態度/遷移（npc_state 運行時真相，先於 tick 同步與存檔）
+  if (window.applyMultiagentMeta) window.applyMultiagentMeta(meta, window.state.world);
+
+  // 後端多代理世界時鐘同步 (authoritative tick/heaven_alert/rumors/dissonance；
+  // 無後端時靜默跳過，dissonance_delta 填 0.0)
+  let tickInfo = null;
+  try {
+    if (window.syncMultiagentTick) {
+      tickInfo = await window.syncMultiagentTick(isFirstMove ? 'START' : action, storyData, meta);
+    }
+  } catch (_) { tickInfo = null; }
+  if (tickInfo) {
+    window.state.game.world_clock = { tick: tickInfo.tick, heaven_alert: tickInfo.heaven_alert };
+    // 後端 authoritative 站位/態度對帳（僅差異更新，保留本地 trust/suspicion 累加）
+    if (window.reconcileNpcStateWithBackend) window.reconcileNpcStateWithBackend(tickInfo, window.state.world);
+  }
+  // 破綻數值以後端 evaluate_dissonance 回傳為準，前端不再另算（忽略 LLM meta.dissonance_delta）；
+  // 無後端回應則填 0.0，僅顯示 storyData.dissonance_reaction 文本。
+  const dissonanceDelta = tickInfo ? (tickInfo.dissonance_delta ?? 0.0) : 0.0;
+  if (typeof window.state.game.dissonance === 'number') window.state.game.dissonance += dissonanceDelta;
+  const flashback = storyData?.flashback_fragment && storyData.flashback_fragment !== 'null' ? String(storyData.flashback_fragment) : '';
+  const dissonanceReaction = storyData?.dissonance_reaction && storyData.dissonance_reaction !== 'null' ? String(storyData.dissonance_reaction) : '';
+  const worldRumor = storyData?.world_rumor && storyData.world_rumor !== 'null' ? String(storyData.world_rumor) : '';
+  // 後端 rumors 為 NPC 進入事件（站位已寫入 npc_state 對帳），此處僅經
+  // formatSpecialBlock 顯示一次；與 world_rumor 文本重複者去重，不疊加。
+  const rumors = (tickInfo?.rumors || [])
+    .filter(Boolean)
+    .map(r => String(r))
+    .filter((r, i, arr) => arr.indexOf(r) === i && r !== worldRumor);
+
+  // 最終確認渲染 (群聊式敘事 + 肉身閃回/破綻/遠方傳聞附加塊)
+  if (narrative) {
+    let html = window.formatNarrative(narrative);
+    if (flashback && window.formatSpecialBlock) html += window.formatSpecialBlock('flashback', flashback);
+    if (dissonanceReaction && window.formatSpecialBlock) html += window.formatSpecialBlock('dissonance', dissonanceReaction);
+    if (worldRumor && window.formatSpecialBlock) html += window.formatSpecialBlock('rumor', worldRumor);
+    rumors.forEach(r => { if (window.formatSpecialBlock) html += window.formatSpecialBlock('rumor', r); });
+    contentEl.innerHTML = marked.parse(html);
+  }
+
+  // 解析 Meta 效果：場景已在 tick 同步前正規化（finalScene）
   const parsed = {
     hp: window.parseDeltaNumber(meta.hp, window.state.game.player.hp),
     sp: window.parseDeltaNumber(meta.sp, window.state.game.player.sp),
@@ -341,7 +482,8 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
     update_abilities: window.parsePairs(meta.upd_ability || meta.update_abilities || meta.upd_abilities)
   };
 
-  const suggested_options = meta.options || [];
+  // 新版相容：Meta 可能回 options 或 suggested_options（normalize 已對齊，此處再兜底）
+  const suggested_options = meta.options || meta.suggested_options || [];
   const isContinuation = meta && meta.has_more;
   if (isContinuation) {
     suggested_options.unshift('繼續敘事...');
@@ -356,7 +498,20 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
   if (window.tickArcCountdown) window.tickArcCountdown(window.state.game);
 
   const currentSceneBefore = window.state.game.scene;
-  const resultData = { narrative: narrative.trim(), impact: parsed, suggested_options, sceneAfter: finalScene || currentSceneBefore };
+  const resultData = {
+    narrative: narrative.trim(),
+    impact: parsed,
+    suggested_options,
+    sceneAfter: finalScene || currentSceneBefore,
+    flashback_fragment: flashback || null,
+    dissonance_reaction: dissonanceReaction || null,
+    world_rumor: worldRumor || null,
+    rumors: rumors.length ? rumors : undefined,
+    attitude_changes: meta.attitude_changes || undefined,
+    tick: tickInfo?.tick,
+    heaven_alert: tickInfo?.heaven_alert,
+    dissonance_delta: dissonanceDelta,
+  };
 
   console.log('[System] 2-call 完成', resultData);
 
@@ -364,6 +519,15 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
   if (window.state.game.history.length > window.state.historyLimit) window.state.game.history.shift();
 
   window.applyImpact(resultData.impact || {});
+
+  // 結局評估：條件結局（天眼/悟性/威脅/造訪）命中即收束，鎖定輸入
+  const matchedEnding = window.checkStoryEnding ? window.checkStoryEnding(window.state.game, window.state.world) : null;
+  if (matchedEnding && window.formatSpecialBlock) {
+    window.appendStory(window.formatSpecialBlock('ending', matchedEnding.result), 'system');
+    window.state.game.finished = true;
+    window.lockActionInput('【命運已定】此局已收束。點選左上角「切換因果」換故事，或重新開始進入新局...');
+  }
+
   window.saveToStorage();
   window.render();
   window.setThinking(false);
@@ -486,13 +650,15 @@ window.switchStory = async function(storyId) {
   }
 
   // 2. 更新 AI 提示詞
+  // @deprecated 相容殼：僅保留供無 transmigration 舊劇本回退；新管線只走 transmigration 精簡版。
   window.DIRECTOR_PROMPT = window.state.world.prompts.director;
   window.NARRATIVE_PROMPT = window.state.world.prompts.narrative;
   window.META_PROMPT = window.state.world.prompts.meta;
 
-  // 3. 讀取存檔
+  // 3. 讀取存檔；重置/還原多代理世界時鐘（存檔內含則還原，否則歸位初始值）
   const saved = window.loadFromStorage();
   window.selectors.storyLog.innerHTML = '';
+  window.state.multiagent = (saved && saved.world_clock) ? { ...saved.world_clock } : { tick: 1, heaven_alert: 10 };
   let needMandatoryTransmigration = false;
 
   if (saved && saved.player?.has_selected_character && saved.player?.char_id) {
@@ -502,7 +668,12 @@ window.switchStory = async function(storyId) {
     } else {
       window.state.game.history.forEach(entry => {
         if (entry.action) window.appendStory(entry.action, 'action', entry.timestamp);
-        if (entry.result) window.appendStory(entry.result.narrative, entry.result.success !== false ? 'narrative' : 'system', entry.timestamp);
+        if (entry.result) {
+          const el = window.appendStory('', entry.result.success !== false ? 'narrative' : 'system', entry.timestamp);
+          const contentEl = el.querySelector('.entry-content');
+          if (contentEl && window.renderFullNarrativeHTML) contentEl.innerHTML = window.renderFullNarrativeHTML(entry.result);
+          else if (contentEl) contentEl.innerHTML = marked.parse(window.formatNarrative(entry.result.narrative || ''));
+        }
       });
     }
   } else {

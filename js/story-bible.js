@@ -74,6 +74,11 @@
     if (!nextFlags || typeof nextFlags !== 'object') return game.story_flags;
     Object.keys(nextFlags).forEach(function (k) {
       game.story_flags[k] = nextFlags[k];
+      // 同步鏡像回傳統 flags 袋：結局條件（checkStoryEnding）同時查 story_flags 與 flags，
+      // 劇本初始旗標（如 chainWeakened / acceptedHeavenSeal）必須能被 Meta 更新
+      if (game.flags && Object.prototype.hasOwnProperty.call(game.flags, k)) {
+        game.flags[k] = nextFlags[k];
+      }
     });
     return game.story_flags;
   };

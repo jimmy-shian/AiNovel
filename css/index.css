@@ -302,7 +302,7 @@
 }
 
 .stat-item {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-subtle);
   border: 1px solid var(--glass-border);
   border-radius: 14px;
   padding: 12px 8px;
@@ -436,7 +436,7 @@
 }
 
 .icon-btn {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-subtle);
   border: 1px solid var(--glass-border);
   border-radius: 12px;
   padding: 12px;
@@ -508,24 +508,35 @@
   flex-direction: column;
   gap: 6px;
   scrollbar-width: thin;
-  background: rgba(18, 26, 18, 0.98);
-  border: 1px solid var(--accent-soft);
+  background: var(--surface);
+  border: 1px solid var(--border);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.8), 0 0 15px rgba(226, 192, 128, 0.15);
   border-radius: 14px;
   backdrop-filter: blur(24px);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transform: translateY(-8px) scale(0.97);
-  transform-origin: top center;
-  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.22s;
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.25s ease,
+              visibility 0.28s;
 }
 
 .custom-select.active .select-options {
   opacity: 1 !important;
   visibility: visible !important;
   pointer-events: auto !important;
-  transform: translateY(0) scale(1) !important;
+  transform: scaleY(1) !important;
+}
+
+.select-trigger .chevron,
+.custom-select .chevron {
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.custom-select.active .select-trigger .arrow-icon,
+.custom-select.active .arrow-icon {
+  transform: rotate(180deg);
 }
 
 .option {
@@ -579,7 +590,11 @@
   flex-direction: column;
   padding: 30px 10px 20px 25px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.01);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.06);
+}
+[data-theme="dark"] .story-display {
   box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.4);
 }
 
@@ -692,22 +707,128 @@
   box-shadow: inset 5px 0 15px rgba(168, 85, 247, 0.02);
 }
 
-/* NPC 彩色發言裝飾 (由 utils.js 的 Regex 自動標記) */
+/* ========== 群聊式多人對話 (新版多代理唯一渲染路徑) ========== */
+.chat-msg {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 10px 0;
+  max-width: 100%;
+}
+.chat-avatar {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+  background: hsl(var(--sp-hue, 220) 55% 45%);
+  border: 1px solid hsl(var(--sp-hue, 220) 60% 60% / 0.6);
+  box-shadow: 0 0 10px hsl(var(--sp-hue, 220) 60% 55% / 0.35);
+}
+.chat-bubble {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid hsl(var(--sp-hue, 220) 60% 55%);
+  border-radius: 4px 12px 12px 12px;
+  padding: 8px 14px;
+  line-height: 1.65;
+}
+.chat-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: hsl(var(--sp-hue, 220) 60% 45%);
+  margin-bottom: 2px;
+}
+[data-theme="dark"] .chat-name {
+  color: hsl(var(--sp-hue, 220) 70% 72%);
+}
+.chat-text {
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+/* 舊 .dialog-block 保留相容：統一轉為群聊縮排樣式 (不再是行內小標籤) */
 .dialog-block {
   display: block;
-  margin: 12px 0;
-  padding: 10px 18px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.01);
-  border-left: 3px solid var(--accent-soft);
-  transition: all 0.3s ease;
-  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.2);
+  margin: 10px 0;
+  padding: 8px 14px;
+  border-radius: 4px 12px 12px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-gold, var(--accent));
+  line-height: 1.65;
 }
 
 .dialog-block .speaker-name {
   font-weight: 700;
-  margin-right: 5px;
-  color: var(--accent);
+  margin-right: 6px;
+  color: var(--brand-gold, var(--accent));
+}
+
+/* 特殊情報插播塊：閃回 / 破綻 / 傳聞 */
+.special-block {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  border: 1px dashed var(--border-subtle);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+}
+.special-tag {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+.flashback-block { border-color: var(--accent); }
+.flashback-block .special-tag { color: var(--accent); }
+.dissonance-block { border-color: var(--warning); }
+.dissonance-block .special-tag { color: var(--warning); }
+.rumor-block { border-color: var(--text-muted); }
+.rumor-block .special-tag { color: var(--text-muted); }
+.ending-block {
+  border-style: solid;
+  border-color: var(--brand-gold, var(--accent));
+  background: var(--brand-gold-soft, var(--surface-subtle));
+  color: var(--text-primary);
+}
+.ending-block .special-tag { color: var(--brand-gold, var(--accent)); }
+
+/* 世界時鐘徽章 */
+.world-tick-badge {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.world-tick-badge .tick-item {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+}
+.theme-toggle-btn {
+  margin-top: 10px;
+  width: 100%;
 }
 
 /* 提燈女童 (星空夢幻藍) */
@@ -758,6 +879,32 @@
 .dialog-block[data-speaker="迷霧閣主"] .speaker-name {
   color: #67e8f9;
   text-shadow: 0 0 10px rgba(103, 232, 249, 0.5);
+}
+
+/* ========== OpenDesign Light 主題對比修正 (深色霓虹泡泡在淺色底的可讀性) ========== */
+[data-theme="light"] .story-entry.action .entry-content {
+  color: #0e7490;
+  background: #ecfeff;
+  border-color: #67e8f9;
+  box-shadow: none;
+}
+[data-theme="light"] .story-entry.system .entry-content {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fcd34d;
+  box-shadow: none;
+}
+[data-theme="light"] .story-entry.narrative .entry-content {
+  color: var(--text-primary);
+  background: transparent;
+  border-left-color: var(--border-subtle);
+  box-shadow: none;
+}
+[data-theme="light"] .entry-header {
+  opacity: 0.75;
+}
+[data-theme="light"] .bg-effects .orb {
+  opacity: 0.08;
 }
 
 /* 正在推演天機動畫 */
@@ -818,19 +965,30 @@
   flex-wrap: wrap;
 }
 
+.quick-actions {
+  align-items: stretch;
+}
 .quick-btn {
   position: relative;
-  padding: 10px 22px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--accent-soft);
-  border-radius: 30px;
-  color: var(--text-main);
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-primary);
   cursor: pointer;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  font-size: 0.95rem;
+  align-items: flex-start;
+  gap: 10px;
+  transition: box-shadow 0.25s ease, background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  max-width: 320px;
+  text-align: left;
+}
+.quick-btn .quick-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .quick-btn:hover,
@@ -927,7 +1085,7 @@
 
 .input-wrapper {
   padding: 15px 25px;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--surface);
   border-radius: 20px;
   border: 1px solid var(--glass-border);
 }
@@ -1280,17 +1438,15 @@
     font-size: 1.1rem;
   }
 
-  .quick-text {
-    display: none;
+  .quick-actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    justify-content: flex-start;
+    padding-bottom: 6px;
   }
-
   .quick-btn {
-    padding: 0;
-    border-radius: 50%;
-    width: 38px;
-    height: 38px;
-    justify-content: center;
-    min-width: 38px;
+    flex: 0 0 auto;
+    max-width: 240px;
   }
 
   .quick-index {
@@ -1363,18 +1519,5 @@
   box-shadow: 0 0 18px rgba(224, 176, 255, 0.3);
 }
 
-/* 多人對話區塊樣式增強 */
-.dialog-block {
-  display: inline-block;
-  margin: 4px 0;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  border-left: 3px solid var(--accent);
-}
-
-.speaker-name {
-  font-weight: 700;
-  color: #e2c080;
-}
+/* (已合併至上方群聊樣式；此處舊行內覆寫已移除，避免覆蓋 .chat-msg 氣泡) */
 
