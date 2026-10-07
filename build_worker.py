@@ -232,22 +232,69 @@ class MultiAgentEngine {
     return occupants;
   }
 
+  checkFlashback(contextText = "") {
+    if (!this.playerCharId || !this.characters[this.playerCharId]) return [];
+    const triggers = this.characters[this.playerCharId].somatic_memory?.flashback_triggers || {};
+    const active = [];
+    const occupants = this.getSceneOccupants(this.currentScene);
+    const occupantNames = occupants.map(c => this.characters[c]?.name || c);
+
+    for (const [triggerKey, fragment] of Object.entries(triggers)) {
+      const charInfo = this.characters[triggerKey] || {};
+      const charName = charInfo.name || "";
+      const cleanName = charName.replace(/[（\(].*?[）\)]/g, "");
+      const inBracketsMatch = charName.match(/[（\(](.*?)[）\)]/);
+      const inBrackets = inBracketsMatch ? inBracketsMatch[1] : "";
+      const charTitle = charInfo.title || "";
+      const firstClause = (fragment || "").split(/[，、]/)[0];
+
+      const matched = (
+        contextText.includes(triggerKey) ||
+        (charName && contextText.includes(charName)) ||
+        (cleanName && cleanName.length >= 2 && contextText.includes(cleanName)) ||
+        (inBrackets && inBrackets.length >= 2 && contextText.includes(inBrackets)) ||
+        (charTitle && charTitle.length >= 2 && contextText.includes(charTitle)) ||
+        (firstClause && firstClause.length >= 4 && contextText.includes(firstClause)) ||
+        (contextText.length >= 4 && (fragment || "").includes(contextText)) ||
+        triggerKey === this.currentScene ||
+        occupants.includes(triggerKey) ||
+        occupantNames.includes(triggerKey)
+      );
+      if (matched) {
+        active.push({ fragment: fragment, source: triggerKey });
+      }
+    }
+    return active;
+  }
+
   evaluateDissonance(playerInput = "") {
     if (!this.playerCharId || !this.characters[this.playerCharId]) return 0.0;
     const pChar = this.characters[this.playerCharId];
-    const text = String(playerInput || "").toLowerCase();
-    const modernSlang = ["哈", "笑死", "搞毛", "牛逼", "老哥", "ok", "666", "系統", "開掛"];
+    const text = String(playerInput || "").trim();
+    if (text.length < 4) return 0.0;
+    const normText = text.normalize ? text.normalize("NFKC") : text;
+    const lower = normText.toLowerCase();
+
+    const modernSlang = [
+      "笑死", "搞毛", "牛逼", "老哥", "ok", "666", "系統", "系统",
+      "開掛", "开挂", "臥槽", "卧槽", "牛批", "yyds", "bug", "cpu", "打call", "絕絕子", "绝绝子"
+    ];
     let dissonance = 0.0;
     for (const slang of modernSlang) {
-      if (text.includes(slang)) dissonance += 0.15;
+      if (lower.includes(slang)) dissonance += 0.15;
     }
-    if (this.playerCharId === "char_duanjian" && text.includes("小女")) {
+
+    if (/(?<![大長長])哈{2,}(?![大長])/.test(normText) && !["大笑", "長笑", "长笑", "仰天"].some(w => normText.includes(w))) {
+      dissonance += 0.10;
+    }
+
+    if (this.playerCharId === "char_duanjian" && (normText.includes("小女") || normText.includes("本姑娘"))) {
       dissonance += 0.25;
-    } else if (this.playerCharId === "char_xian_shi" && text.includes("求求")) {
+    } else if (this.playerCharId === "char_xian_shi" && normText.includes("求求")) {
       dissonance += 0.3;
     }
     pChar.dissonance = Math.min(1.0, (pChar.dissonance || 0.0) + dissonance);
-    return dissonance;
+    return Math.min(0.3, dissonance);
   }
 
   stepWorldTick(directorOutput = {}, metaOutput = {}) {
@@ -283,7 +330,7 @@ class MultiAgentEngine {
       }
     }
 
-    // 2. 態度浮動
+    // 2. 態度浮動 (三維全更新：trust, suspicion, fear)
     const attitudeChanges = Array.isArray(metaOutput.attitude_changes) ? metaOutput.attitude_changes : [];
     for (const change of attitudeChanges) {
       const npcId = change?.npc_id;
@@ -293,12 +340,13 @@ class MultiAgentEngine {
           const curr = matrix[this.playerCharId];
           curr.trust = Math.max(-1.0, Math.min(1.0, (curr.trust || 0) + (Number(change.trust_delta) || 0)));
           curr.suspicion = Math.max(0.0, Math.min(1.0, (curr.suspicion || 0) + (Number(change.suspicion_delta) || 0)));
+          curr.fear = Math.max(0.0, Math.min(1.0, (curr.fear || 0) + (Number(change.fear_delta) || 0)));
         }
       }
     }
 
     // 2b. NPC 明示遷移
-    const rumors = [];
+    let rumors = [];
     const explicitMoved = new Set();
     const npcMovements = Array.isArray(metaOutput.npc_movements) ? metaOutput.npc_movements : [];
     for (const m of npcMovements) {
@@ -319,11 +367,11 @@ class MultiAgentEngine {
       }
     }
 
-    // 3. 後台自主 NPC 依空間圖漫遊
+    // 3. 後台自主 NPC 依空間圖漫遊 (降低機率至 0.05)
     for (const [cid, loc] of Object.entries({ ...this.charLocations })) {
       if (explicitMoved.has(cid)) continue;
       if (cid !== this.playerCharId && loc !== this.currentScene) {
-        if (Math.random() < 0.25 && this.spatialGraph[loc]) {
+        if (Math.random() < 0.05 && this.spatialGraph[loc]) {
           const neighbors = this.spatialGraph[loc];
           if (neighbors && neighbors.length > 0) {
             const nextLoc = neighbors[Math.floor(Math.random() * neighbors.length)];
@@ -336,8 +384,26 @@ class MultiAgentEngine {
       }
     }
 
-    // 4. 天道警戒
-    this.heavenAlert = Math.min(100, this.heavenAlert + 2);
+    // 傳聞去重
+    rumors = [...new Set(rumors)];
+
+    // 4. 天道警戒雙向結算（支援旗標與 threat 降壓）
+    const flags = metaOutput.flags || {};
+    let threatDelta = 0;
+    if (metaOutput.impact && metaOutput.impact.threat !== undefined) {
+      threatDelta = Number(metaOutput.impact.threat) || 0;
+    } else if (metaOutput.threat !== undefined) {
+      threatDelta = Number(String(metaOutput.threat).replace('+', '')) || 0;
+    }
+    const calmKeywords = ["斷信標", "断信标", "超度", "改命", "安撫", "安抚", "平息", "隱匿", "隐匿", "消弭", "沉寂", "避劫", "匿跡", "匿迹"];
+    const calmHit = Object.keys(flags).some(k => calmKeywords.some(kw => k.includes(kw)) && flags[k]);
+    if (calmHit || threatDelta < 0) {
+      const relief = calmHit ? 15 : Math.abs(threatDelta);
+      this.heavenAlert = Math.max(0, Math.min(100, this.heavenAlert - relief));
+    } else {
+      this.heavenAlert = Math.min(100, this.heavenAlert + 2);
+    }
+
     for (const r of rumors) {
       this.worldEventLog.push(`[TICK ${this.tick}] ${r}`);
     }
@@ -351,6 +417,7 @@ class MultiAgentEngine {
         attitudeSnapshot[cid] = {
           trust: att.trust !== undefined ? att.trust : 0.0,
           suspicion: att.suspicion !== undefined ? att.suspicion : 0.3,
+          fear: att.fear !== undefined ? att.fear : 0.0,
         };
       }
     }
@@ -608,6 +675,8 @@ export default {
         const dissonanceDelta = globalEngine.evaluateDissonance(playerInput);
         const stepRes = globalEngine.stepWorldTick(directorOutput, metaOutput);
         stepRes.dissonance_delta = dissonanceDelta;
+        const combinedContext = `${playerInput} ${directorOutput.reveal || ""} ${directorOutput.dramatic_conflict || ""}`;
+        stepRes.flashbacks = globalEngine.checkFlashback(combinedContext);
 
         return new Response(JSON.stringify(stepRes), {
           headers: { "Content-Type": "application/json", ...CORS_HEADERS },

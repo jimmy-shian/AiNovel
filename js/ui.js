@@ -612,8 +612,9 @@ window.attachSidebarListeners = function() {
   const openExport = () => {
     window.state.currentSaveMode = 'export';
     window.selectors.saveModalTitle.textContent = '匯出命錄卷軸';
-    window.selectors.btnConfirmSave.textContent = '烙印至神識 (複製)';
-    const payload = btoa(unescape(encodeURIComponent(JSON.stringify(window.state.game))));
+    const payload = window.encodeSaveData
+      ? window.encodeSaveData(window.state.game)
+      : btoa(unescape(encodeURIComponent(JSON.stringify(window.state.game))));
     window.selectors.saveCode.value = payload;
     const modal = document.getElementById('save-modal');
     if (modal) modal.classList.remove('hidden');

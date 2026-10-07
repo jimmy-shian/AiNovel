@@ -318,13 +318,14 @@ window.parseDeltaNumber = function(raw, current) {
     return Number.isFinite(v) ? v : undefined;
   }
 
-  // 純數字且無正負號，視為絕對值（新數值），轉換成相對於當前的增量 delta
-  // 注意：此分支為歧義根源，保留僅為相容舊模型輸出；新契約已要求顯式符號。
-  // @deprecated：命中此分支代表 LLM 回了裸數字，新管線應經 parseDeltaNumberStrict 拒收/降級為 +0。
+  // 5-1: 純數字且無正負號：裸數字歧義，已廢棄，回傳 undefined 降級為 +0
   const v = Number(str);
   if (Number.isFinite(v)) {
-    if (!window.__parseDeltaBareWarned) { window.__parseDeltaBareWarned = true; console.warn('[deprecated] parseDeltaNumber 裸數字字串分支已棄用（歧義），請改用 parseDeltaNumberStrict（validators.js）。'); }
-    return v - current;
+    if (!window.__parseDeltaBareWarned) {
+      window.__parseDeltaBareWarned = true;
+      console.warn('[deprecated] parseDeltaNumber 裸數字字串已拒收（歧義，請使用顯式 +/- 或 A/B 格式）。');
+    }
+    return undefined;
   }
   return undefined;
 };
@@ -336,8 +337,7 @@ window.parseDeltaNumber = function(raw, current) {
 window.parsePairs = function(raw) {
   const out = {};
   if (!raw || /^(none|無|null|nan)$/i.test(String(raw).trim())) return out;
-  // 物件路徑正規化：統一為 { isDelta, val, min?, max? }，消除「{天眼:5} 是絕對5還是+5」分歧
-  // 契約：物件數字型且無 isDelta 標記 → 視為絕對值（isDelta:false），由 applyImpact 做絕對賦值
+  // 物件路徑正規化：統一為 { isDelta, val, min?, max? }
   if (typeof raw === 'object') {
     Object.entries(raw).forEach(([k, v]) => {
       if (v !== null && typeof v === 'object' && ('val' in v)) {
@@ -356,7 +356,9 @@ window.parsePairs = function(raw) {
     });
     return out;
   }
-  const parts = String(raw).split(/[;；]/).map(s => s.trim()).filter(Boolean);
+  // 5-4: 全形符號歸一化（＝＋－）+ 擴充切分符號 [;；、,，\n]+
+  const normStr = String(raw).replace(/＝/g, '=').replace(/＋/g, '+').replace(/－/g, '-');
+  const parts = normStr.split(/[;；、,，\n]+/).map(s => s.trim()).filter(Boolean);
   for (const part of parts) {
     const eq = part.indexOf('=');
     if (eq === -1) continue;
@@ -422,16 +424,15 @@ window.createTypewriter = function(el, scrollContainer) {
   };
 
   const type = () => {
+    // 5-5: reducedMotion 立即全量渲染，不進入死循環輪詢
     if (reducedMotion) {
-      // 無障礙降級：直接全量渲染，不逐字動畫
       flushAll();
-      if (!isDone) timer = setTimeout(type, 120);
-      else timer = null;
+      timer = null;
       return;
     }
     if (queue.length > 0 || !isDone) {
       if (queue.length > 0) {
-        // 流暢度：每 tick 3 字（原 1 字需 30s/400字，現 ~10s），仍保留打字感
+        // 流暢度：每 tick 3 字，仍保留打字感
         const batchSize = 3;
         const chars = queue.substring(0, batchSize);
         queue = queue.substring(batchSize);
@@ -454,10 +455,17 @@ window.createTypewriter = function(el, scrollContainer) {
   return {
     push: (text) => {
       queue += text;
+      if (reducedMotion) {
+        flushAll();
+        return;
+      }
       if (!timer) type();
     },
     finish: () => {
       isDone = true;
+      if (reducedMotion) {
+        flushAll();
+      }
     },
     stop: () => {
       if (timer) clearTimeout(timer);
@@ -466,6 +474,10 @@ window.createTypewriter = function(el, scrollContainer) {
       queue = "";
     },
     wait: () => new Promise(resolve => {
+      if (reducedMotion && isDone) {
+        flushAll();
+        return resolve();
+      }
       const check = () => {
         if (isDone && queue.length === 0) resolve();
         else setTimeout(check, 50);
@@ -583,10 +595,53 @@ window.parseOptionRequirement = function(optionText, player) {
     };
   }
 
+  // 6-3: 當靈力枯竭 (sp <= 0) 時，鎖定消耗靈力或施展法術之選項
+  if ((player.sp || 0) <= 0 && /靈力|真元|靈息|SP/i.test(optionText) && /消耗|施展|法術|秘法/.test(optionText)) {
+    return {
+      eligible: false,
+      type: 'cost',
+      cost: 1,
+      costType: '靈力',
+      current: 0,
+      reason: '靈力枯竭，無法施展法術'
+    };
+  }
+
   return { eligible: true };
 };
 
 window.checkOptionEligibility = function(optionText, player) {
   return window.parseOptionRequirement(optionText, player).eligible;
+};
+
+// 3-5: UTF-8 + Base64url 存檔序列化與反序列化（消除中文/emoji atob 報錯風險）
+window.encodeSaveData = function(data) {
+  const jsonStr = JSON.stringify(data);
+  const bytes = new TextEncoder().encode(jsonStr);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) {
+    bin += String.fromCharCode(bytes[i]);
+  }
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+
+window.decodeSaveData = function(rawStr) {
+  if (!rawStr) return null;
+  let s = String(rawStr).trim();
+  // base64url 轉回 standard base64
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4 !== 0) {
+    s += '=';
+  }
+  try {
+    const bin = atob(s);
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    const json = new TextDecoder('utf-8').decode(bytes);
+    return JSON.parse(json);
+  } catch (_) {
+    // 向下相容舊格式 escape / atob
+    const json = decodeURIComponent(escape(atob(s)));
+    return JSON.parse(json);
+  }
 };
 

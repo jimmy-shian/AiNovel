@@ -94,8 +94,13 @@ window.buildChatPayload = function(model, systemPrompt, userContent, enableThink
     top_p: resolved.top_p,
     max_tokens: resolved.max_tokens,
     stream: resolved.stream,
-    response_format: base.response_format,
   };
+  // 4-2: 只對 gpt-oss / openai 模型發送 response_format，避免 qwen/deepseek/llama 400 報錯
+  const lowerModel = (model || '').toLowerCase();
+  const isOpenAI = lowerModel.includes('gpt') || lowerModel.includes('openai');
+  if (isOpenAI && base.response_format) {
+    payload.response_format = base.response_format;
+  }
   if (base.frequency_penalty !== undefined) payload.frequency_penalty = base.frequency_penalty;
   if (base.presence_penalty !== undefined) payload.presence_penalty = base.presence_penalty;
 
@@ -142,8 +147,16 @@ window.streamAPICall = async function(systemPrompt, userContent, onDelta, enable
     ? (window.CONFIG.candidateProxyUrls || [window.CONFIG.proxyUrl])
     : (customChat ? [customChat] : [window.CONFIG.directUrl]);
 
+  // 4-4: 逾時控制（Story 60s, Meta 30s）
+  const timeoutMs = (kind === 'meta') ? 30000 : 60000;
+
   let lastError = null;
   for (const url of candidateUrls) {
+    const controller = new AbortController();
+    const timeoutTimer = setTimeout(() => {
+      controller.abort(new Error(`API 呼叫逾時 (${timeoutMs / 1000} 秒)`));
+    }, timeoutMs);
+
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (apiKey) {
@@ -156,7 +169,8 @@ window.streamAPICall = async function(systemPrompt, userContent, onDelta, enable
       const response = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
 
       if (!response.ok) {
@@ -172,26 +186,37 @@ window.streamAPICall = async function(systemPrompt, userContent, onDelta, enable
       // 非串流模式
       if (!payload.stream) {
         const data = await response.json();
+        clearTimeout(timeoutTimer);
         if (data.error) throw new Error(data.error.message || "API 內部錯誤");
         const content = data.choices?.[0]?.message?.content || "";
         if (onDelta && content) onDelta(content, content);
         return content;
       }
 
-      // 串流模式
+      // 串流模式（4-3: buffer 攢半行，只解析完整行；[DONE]跳出 while 並 cancel reader）
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullText = "";
+      let buffer = "";
+      let isStreamDone = false;
 
-      while (true) {
+      while (!isStreamDone) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split('\n')) {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        // 最後一段可能為未傳完的半行，留回緩衝區
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
-          const dataStr = trimmedLine.slice(6);
-          if (dataStr === '[DONE]') break;
+          const dataStr = trimmedLine.slice(6).trim();
+          if (dataStr === '[DONE]') {
+            isStreamDone = true;
+            try { await reader.cancel(); } catch (_) {}
+            break;
+          }
           try {
             const data = JSON.parse(dataStr);
             if (data.error) throw new Error(data.error.message || "API 內部錯誤");
@@ -208,8 +233,28 @@ window.streamAPICall = async function(systemPrompt, userContent, onDelta, enable
         }
       }
 
+      // 檢查殘留緩衝區
+      if (buffer.trim() && !isStreamDone) {
+        const trimmedLine = buffer.trim();
+        if (trimmedLine.startsWith('data: ')) {
+          const dataStr = trimmedLine.slice(6).trim();
+          if (dataStr !== '[DONE]') {
+            try {
+              const data = JSON.parse(dataStr);
+              const delta = data.choices?.[0]?.delta?.content || "";
+              if (delta) {
+                fullText += delta;
+                if (onDelta) onDelta(delta, fullText);
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
+      clearTimeout(timeoutTimer);
       return fullText;
     } catch (err) {
+      clearTimeout(timeoutTimer);
       console.warn(`[streamAPICall] 端點 ${url} 呼叫失敗:`, err.message);
       lastError = err;
       // 若多個端點可用則繼續嘗試下一個

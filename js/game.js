@@ -22,6 +22,31 @@ window.applyImpact = function(impact) {
     changes.push(['業力', impact.threat]);
   }
 
+  // 3-6: threat >= 90 混沌臨界警告
+  if (p.threat >= 90) {
+    const threatWarn = `【混沌臨界】殺機已達 ${p.threat}！天劫預兆逼近極限！`;
+    if (window.showToast) window.showToast(threatWarn);
+    else console.warn(threatWarn);
+  }
+
+  // 6-3: sp <= 0 靈力枯竭提示
+  if (p.sp <= 0) {
+    const spWarn = '【靈力枯竭】真元暫時耗盡，本輪無法施展耗藍法術！';
+    if (window.showToast) window.showToast(spWarn);
+    else console.warn(spWarn);
+  }
+
+  // 3-6: hp <= 0 生機斷絕，鎖定輸入並標記完結
+  if (p.hp <= 0) {
+    window.state.game.finished = true;
+    if (window.appendStory) {
+      window.appendStory('【生機斷絕】肉身崩解，神魂寂滅於天地之間……', 'system');
+    }
+    if (window.lockActionInput) {
+      window.lockActionInput('【生機斷絕】氣血耗盡，身死道消。請重塑乾坤或讀取因果命錄...');
+    }
+  }
+
   // 4. 新增能力
   if (impact.new_abilities) {
     Object.entries(impact.new_abilities).forEach(([n, v]) => {
@@ -410,8 +435,18 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
   ]);
   let meta = metaResolved;
   if (!meta) {
-    console.warn('[Meta] 數據推演失敗，將使用預設空數據');
-    meta = { impact: {}, options: ['繼續探索', '觀察四周', '調息打坐', '查看狀態'] };
+    // 3-1: 顯式保底，避免 parseDeltaNumber(undefined) 靜默吞掉結算
+    console.warn('[Meta] 數據推演失敗，將使用預設保底數據');
+    meta = {
+      hp: "+0",
+      sp: "+0",
+      threat: "+0",
+      scene: null,
+      options: ['繼續探索', '觀察四周', '調息打坐', '查看狀態'],
+      has_more: false
+    };
+    if (window.showToast) window.showToast('命數推演失敗，已保底');
+    else if (window.appendStory) window.appendStory('【命數推演警示】天機混亂推演未果，已採用保底狀態。', 'system');
   }
 
   // 解析 Meta 效果（含場景正規化：title→key）。
@@ -419,15 +454,19 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
   const normScene = window.normalizeSceneKey
     ? window.normalizeSceneKey((meta.scene && meta.scene !== 'null') ? meta.scene : (sceneHint || null), window.state.world)
     : ((meta.scene && meta.scene !== 'null') ? meta.scene : null);
-  // 敘事↔Meta 交叉：若敘事暗示移動但 Meta 回 null，以白名單內的 sceneHint 補正；反之 Meta 非法移動則攔截
+  // 3-2: 敘事↔Meta 交叉：只有當 Meta 回 null 且 has_more === false（明確轉場輪）才允許以 sceneHint 補正
   let finalScene = normScene;
   {
     const cur = window.state.game.scene;
     const exits = (window.state.world.scenes[cur] && window.state.world.scenes[cur].scene_exit) || [];
     const hintNorm = window.normalizeSceneKey && sceneHint ? window.normalizeSceneKey(sceneHint, window.state.world) : sceneHint;
     if (!finalScene && hintNorm && hintNorm !== cur && exits.indexOf(hintNorm) !== -1) {
-      console.warn('[Scene] Meta 回 null 但敘事暗示合法移動，以 sceneHint 補正:', hintNorm);
-      finalScene = hintNorm;
+      if (meta && meta.has_more === false) {
+        console.warn('[Scene] Meta 回 null 但 has_more===false 且敘事暗示合法移動，以 sceneHint 補正:', hintNorm);
+        finalScene = hintNorm;
+      } else {
+        console.warn('[Scene] 非明確轉場輪 (has_more!==false)，拒絕 sceneHint 越權瞬移');
+      }
     }
   }
   meta.scene = finalScene || null;
@@ -489,13 +528,12 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
     suggested_options.unshift('繼續敘事...');
   }
 
-  // 更新 Flags + 弧線 tick
+  // 更新 Flags
   if (meta.flags && window.mergeStoryFlags) {
     window.mergeStoryFlags(window.state.game, meta.flags);
   } else if (meta.flags) {
     window.state.game.story_flags = { ...(window.state.game.story_flags || {}), ...meta.flags };
   }
-  if (window.tickArcCountdown) window.tickArcCountdown(window.state.game);
 
   const currentSceneBefore = window.state.game.scene;
   const resultData = {
@@ -518,9 +556,13 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
   window.state.game.history.push({ action: isFirstMove ? 'START' : action, result: resultData, timestamp });
   if (window.state.game.history.length > window.state.historyLimit) window.state.game.history.shift();
 
+  // 3-3: 只有在 applyImpact 成功執行後才推進弧線倒數，且首輪 (isFirstMove) 不倒數
   window.applyImpact(resultData.impact || {});
+  if (!isFirstMove && window.tickArcCountdown) {
+    window.tickArcCountdown(window.state.game);
+  }
 
-  // 結局評估：條件結局（天眼/悟性/威脅/造訪）命中即收束，鎖定輸入
+  // 結局評估：條件結局（天眼/悟性/威脅/造訪/倒數）命中即收束，鎖定輸入
   const matchedEnding = window.checkStoryEnding ? window.checkStoryEnding(window.state.game, window.state.world) : null;
   if (matchedEnding && window.formatSpecialBlock) {
     window.appendStory(window.formatSpecialBlock('ending', matchedEnding.result), 'system');
@@ -536,16 +578,9 @@ window.handleAction = async function(e, isFirstMove = false, retryAction = null)
 window.importSave = function() {
   try {
     const raw = window.selectors.saveCode.value.trim();
-    // 新格式：UTF-8 base64（TextDecoder）；相容舊 escape/atob
-    let json = '';
-    try {
-      const bin = atob(raw);
-      const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
-      json = new TextDecoder('utf-8').decode(bytes);
-    } catch (_) {
-      json = decodeURIComponent(escape(atob(raw)));
-    }
-    const data = JSON.parse(json);
+    // 3-5: 使用 decodeSaveData (支援 UTF-8 + Base64url 與舊格式相容)
+    const data = window.decodeSaveData ? window.decodeSaveData(raw) : JSON.parse(decodeURIComponent(escape(atob(raw))));
+    if (!data) throw new Error('無效數據');
     if (window.isSaveCompatible && !window.isSaveCompatible(data)) {
       alert('此命錄為舊版本，已失效，請重開新局（v1.5 起存檔斷代）。');
       return;
@@ -553,7 +588,7 @@ window.importSave = function() {
     window.state.game = data;
     window.saveToStorage();
     location.reload();
-  } catch (e) { alert('無效數據'); }
+  } catch (e) { alert('無效數據: ' + (e.message || '格式錯誤')); }
 };
 
 window.clearGame = function() {

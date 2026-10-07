@@ -186,30 +186,36 @@ window.CONFIG = {
     return cleanPath;
   },
   get candidateModelUrls() {
-    // 使用者自訂端點永遠優先第一順位
-    const urls = [this.modelsUrl];
-    if (this.customModelsEndpoint && !urls.includes(this.customModelsEndpoint)) urls.unshift(this.customModelsEndpoint);
-    if (this.isLocal) {
-      if (!urls.includes(window.SETTINGS.ENDPOINTS.localModels)) urls.push(window.SETTINGS.ENDPOINTS.localModels);
-      if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteModels)) urls.push(window.SETTINGS.ENDPOINTS.remoteModels);
+    const urls = [];
+    if (this.useProxy) {
+      if (this.isLocal) {
+        if (!urls.includes(window.SETTINGS.ENDPOINTS.localModels)) urls.push(window.SETTINGS.ENDPOINTS.localModels);
+        if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteModels)) urls.push(window.SETTINGS.ENDPOINTS.remoteModels);
+      } else {
+        if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteModels)) urls.push(window.SETTINGS.ENDPOINTS.remoteModels);
+        if (!urls.includes(window.SETTINGS.ENDPOINTS.localModels)) urls.push(window.SETTINGS.ENDPOINTS.localModels);
+      }
     } else {
-      if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteModels)) urls.push(window.SETTINGS.ENDPOINTS.remoteModels);
-      if (!urls.includes(window.SETTINGS.ENDPOINTS.localModels)) urls.push(window.SETTINGS.ENDPOINTS.localModels);
+      if (this.customModelsEndpoint) urls.push(this.customModelsEndpoint);
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.directModels)) urls.push(window.SETTINGS.ENDPOINTS.directModels);
     }
-    if (!urls.includes(window.SETTINGS.ENDPOINTS.directModels)) urls.push(window.SETTINGS.ENDPOINTS.directModels);
     return urls;
   },
   get candidateProxyUrls() {
-    // 使用者自訂 chat 端點優先第一順位，其次才是 proxyUrl 預設
+    // 4-1: 排序：[proxyUrl(+X-Target-URL)] > [remoteProxy] > [direct]，直連永遠最後且僅當 useProxy=false
     const urls = [];
-    if (this.customChatEndpoint) urls.push(this.customChatEndpoint);
-    urls.push(this.proxyUrl);
-    if (this.isLocal) {
-      if (!urls.includes(window.SETTINGS.ENDPOINTS.localProxy)) urls.push(window.SETTINGS.ENDPOINTS.localProxy);
-      if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteProxy)) urls.push(window.SETTINGS.ENDPOINTS.remoteProxy);
+    if (this.useProxy) {
+      if (!urls.includes(this.proxyUrl)) urls.push(this.proxyUrl);
+      if (this.isLocal) {
+        if (!urls.includes(window.SETTINGS.ENDPOINTS.localProxy)) urls.push(window.SETTINGS.ENDPOINTS.localProxy);
+        if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteProxy)) urls.push(window.SETTINGS.ENDPOINTS.remoteProxy);
+      } else {
+        if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteProxy)) urls.push(window.SETTINGS.ENDPOINTS.remoteProxy);
+        if (!urls.includes(window.SETTINGS.ENDPOINTS.localProxy)) urls.push(window.SETTINGS.ENDPOINTS.localProxy);
+      }
     } else {
-      if (!urls.includes(window.SETTINGS.ENDPOINTS.remoteProxy)) urls.push(window.SETTINGS.ENDPOINTS.remoteProxy);
-      if (!urls.includes(window.SETTINGS.ENDPOINTS.localProxy)) urls.push(window.SETTINGS.ENDPOINTS.localProxy);
+      if (this.customChatEndpoint) urls.push(this.customChatEndpoint);
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.directProxy)) urls.push(window.SETTINGS.ENDPOINTS.directProxy);
     }
     return urls;
   }

@@ -34,12 +34,8 @@ def parse_delta_number(raw_str, current):
         except ValueError:
             return None
             
-    # 純數字且無符號，視為絕對新值，需減去當前值以轉換為增量 delta
-    try:
-        val = float(s)
-        return val - current
-    except ValueError:
-        return None
+    # 5-1: 裸數字字串分支已棄用（歧義），回傳 None（由前端降級為 +0）
+    return None
 
 def parse_pairs(raw_str):
     """
@@ -49,7 +45,9 @@ def parse_pairs(raw_str):
     if not raw_str or str(raw_str).strip().lower() in ('none', '無', 'null', 'nan'):
         return out
         
-    parts = [p.strip() for p in str(raw_str).split(';') if p.strip()]
+    import re
+    norm_str = str(raw_str).replace('＝', '=').replace('＋', '+').replace('－', '-')
+    parts = [p.strip() for p in re.split(r'[;；、,，\n]+', norm_str) if p.strip()]
     for part in parts:
         if '=' not in part:
             continue
@@ -84,10 +82,9 @@ def parse_pairs(raw_str):
                     continue
         else:
             try:
-                v = float(clean_v_str)
                 out[k] = {
                     'isDelta': is_delta,
-                    'val': v
+                    'val': float(clean_v_str)
                 }
             except ValueError:
                 continue
@@ -198,9 +195,9 @@ def run_all_tests():
     assert parse_delta_number("+15", 50) == 15, "相對增加解析失敗"
     # 測試相對減少
     assert parse_delta_number("-10", 50) == -10, "相對減少解析失敗"
-    # 測試絕對新值 (90)
-    assert parse_delta_number("90", 50) == 40, "絕對新值解析失敗"
-    assert parse_delta_number("30", 50) == -20, "絕對新值小於當前解析失敗"
+    # 5-1: 測試裸數字字串 (90, 30) 回傳 None（消除歧義，由前端降級為 +0）
+    assert parse_delta_number("90", 50) is None, "裸數字應回傳 None 消除歧義"
+    assert parse_delta_number("30", 50) is None, "裸數字應回傳 None 消除歧義"
     # 測試帶斜線 (80/100)
     assert parse_delta_number("80/100", 50) == 30, "帶斜線絕對新值解析失敗"
     
@@ -214,6 +211,12 @@ def run_all_tests():
     assert res1['天眼']['isDelta'] is True and res1['天眼']['val'] == 5, "能力相對增加解析失敗"
     assert res1['悟性']['isDelta'] is True and res1['悟性']['val'] == -2, "能力相對減少解析失敗"
     
+    # 5-4: 測試頓號、逗號與全形符號解析
+    res_comma = parse_pairs("天眼=+2、悟性=+3")
+    assert res_comma['天眼']['val'] == 2 and res_comma['悟性']['val'] == 3, "頓號分隔解析失敗"
+    res_full = parse_pairs("天眼＝＋2，悟性＝－3")
+    assert res_full['天眼']['val'] == 2 and res_full['悟性']['val'] == -3, "全形符號解析失敗"
+
     # 測試絕對值解析
     res2 = parse_pairs("天眼=30")
     assert res2['天眼']['isDelta'] is False and res2['天眼']['val'] == 30, "能力絕對值解析失敗"
@@ -382,22 +385,28 @@ def run_all_tests():
     assert "qwen2.5:32b" in sorted_ollama
     assert "llama3:latest" in sorted_ollama
 
-    # 6.3 測試 FastAPI /v1/models 路由代理功能
+    # 6.3 測試 FastAPI /v1/models 路由代理功能 (非阻塞 httpx 與 401 攔截)
     from fastapi.testclient import TestClient
     from server import app
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import patch, AsyncMock
+    import httpx
 
     client = TestClient(app)
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "data": [
-            {"id": "openai/gpt-oss-120b"},
-            {"id": "nvidia/nemotron-4-340b-instruct"}
-        ]
-    }
+    mock_resp = httpx.Response(
+        200,
+        json={
+            "data": [
+                {"id": "openai/gpt-oss-120b"},
+                {"id": "nvidia/nemotron-4-340b-instruct"}
+            ]
+        }
+    )
 
-    with patch("requests.get", return_value=mock_resp) as mock_get:
+    # 1-2: 測試未提供 Authorization 直接回傳 401，不轉發上游
+    res_no_auth = client.get("/v1/models")
+    assert res_no_auth.status_code == 401, "缺少 Authorization 應直接回 401"
+
+    with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_resp) as mock_get:
         res = client.get("/v1/models", headers={"Authorization": "Bearer test-api-key"})
         assert res.status_code == 200
         data = res.json()
@@ -557,6 +566,54 @@ def run_all_tests():
     assert "validateStrictMeta" in game_code, "game.js 未接入嚴格 Meta 校驗"
 
     print("=> 測試 9 通過！")
+
+    # Test 10: 測試多代理人引擎狀態同步、破綻檢測、態度三維與天道警戒雙向調節
+    print("[測試 10] 測試 MultiAgentEngine (sync_state, fear, seeded drift, calm/threat alert)...")
+    from agent_flow_engine import MultiAgentEngine
+    engine = MultiAgentEngine("stories/tianyan_multiagent.json")
+    engine.transmigrate("char_duanjian")
+
+    # 10.1 破綻檢測：文言大笑不應判定破綻，現代詞與反差人設判定破綻
+    assert engine.evaluate_dissonance("蕭千絕仰天長笑，豪氣干雲！") == 0.0, "文言長笑不應判定破綻"
+    assert engine.evaluate_dissonance("老哥這波太666了牛逼！") > 0.0, "現代詞彙應判定破綻"
+    assert engine.evaluate_dissonance("小女這廂有禮了") > 0.0, "反差人設自稱應判定破綻"
+
+    # 10.2 sync_state 同步
+    engine.sync_state({
+        "tick": 15,
+        "heaven_alert": 70,
+        "char_locations": {"char_duanjian": "鬼市", "char_laoduwu": "凡人村"},
+        "current_scene": "鬼市"
+    })
+    assert engine.tick == 15
+    assert engine.heaven_alert == 70
+    assert engine.current_scene == "鬼市"
+    assert engine.char_locations["char_laoduwu"] == "凡人村"
+
+    # 10.3 step_world_tick 態度三維更新 (包含 fear)
+    res_tick = engine.step_world_tick(
+        director_output={},
+        meta_output={
+            "attitude_changes": [
+                {"npc_id": "char_laoduwu", "trust_delta": 0.2, "suspicion_delta": -0.1, "fear_delta": 0.3}
+            ],
+            "flags": {"斷信標": True}
+        }
+    )
+    assert res_tick["tick"] == 16
+    # 態度快照中應包含 fear 欄位
+    assert "char_laoduwu" in res_tick["attitude_snapshot"]
+    assert "fear" in res_tick["attitude_snapshot"]["char_laoduwu"]
+    assert abs(res_tick["attitude_snapshot"]["char_laoduwu"]["fear"] - 0.7) < 1e-4
+    # 命中「斷信標」旗標，heaven_alert 應下降 (70 - 15 = 55)
+    assert res_tick["heaven_alert"] < 70, "善行/斷信標旗標應使天道警戒值下降"
+
+    # 10.4 閃回直覺雙路檢測
+    flashbacks = engine.check_flashback("看見引仙渡執法仙使的法袍")
+    assert len(flashbacks) > 0
+    assert "fragment" in flashbacks[0] and "source" in flashbacks[0]
+
+    print("=> 測試 10 通過！")
 
     print("====== 所有測試皆已順利通過！ ======")
 

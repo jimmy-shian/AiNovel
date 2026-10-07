@@ -260,11 +260,19 @@ function setupEventListeners() {
   });
 
   // 執行存檔/讀檔確認
-  window.selectors.btnConfirmSave.addEventListener('click', () => {
+  window.selectors.btnConfirmSave.addEventListener('click', async () => {
     if (window.state.currentSaveMode === 'export') {
-      window.selectors.saveCode.select();
-      document.execCommand('copy');
-      alert('已複製到剪貼簿');
+      const text = window.selectors.saveCode.value || '';
+      if (window.copyToClipboard) {
+        await window.copyToClipboard(text, window.selectors.btnConfirmSave, '已複製！');
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        alert('已複製到剪貼簿');
+      } else {
+        window.selectors.saveCode.select();
+        document.execCommand('copy');
+        alert('已複製到剪貼簿');
+      }
       window.selectors.saveModal.classList.add('hidden');
     } else {
       window.importSave();

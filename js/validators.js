@@ -15,15 +15,17 @@
   window.validatePOV = function (narrative) {
     if (!narrative || !narrative.trim()) return { ok: false, reason: 'empty narrative' };
     var text = narrative.trim();
-    var woCount = (text.match(/我/g) || []).length;
-    // 第二人稱開頭氾濫（你…）且幾乎無「我」 → 視為視角漂移
-    var niLead = (text.match(/(^|\n)\s*你/g) || []).length;
-    var taLead = (text.match(/(^|\n)\s*他(?!人)/g) || []).length;
+    // 5-3: 剔除氣泡/引號內對話後再計算第一與第二人稱
+    var pureNarration = text.replace(/「[^」]*」|『[^』]*』|“[^”]*”|"[^"]*"/g, ' ');
+    var woCount = (pureNarration.match(/我/g) || []).length;
+    var niLead = (pureNarration.match(/(^|\n)\s*你/g) || []).length;
+    var taLead = (pureNarration.match(/(^|\n)\s*他(?!人)/g) || []).length;
     if (woCount === 0 && (niLead + taLead) > 0) {
       return { ok: false, reason: 'POV drift: missing 第一人稱我' };
     }
-    if (niLead >= 3 && woCount <= 1) {
-      return { ok: false, reason: 'POV drift: 第二人稱主導' };
+    // 5-3: 你開頭>=2 即打回（嚴格防止第二人稱漂移）
+    if (niLead >= 2) {
+      return { ok: false, reason: 'POV drift: 第二人稱主導 (你開頭>=2)' };
     }
     return { ok: true };
   };
@@ -62,22 +64,22 @@
   };
 
   // ---- 3. 場景正規化：title→key 模糊匹配 ----
-  // 接受「凡人村」「靈脈枯竭：凡人村」「 凡人村 」皆映射到 key「凡人村」
+  // 5-2: 僅允許 title===s 或 title去掉前綴===s，刪子字串匹配，防止誤配導致非法瞬移
   window.normalizeSceneKey = function (rawScene, world) {
     if (rawScene === null || rawScene === undefined) return null;
     var s = String(rawScene).trim();
     if (!s || /^(null|none|無|nan)$/i.test(s)) return null;
     if (!world || !world.scenes) return s;
     if (world.scenes[s]) return s;
-    // 去掉 title 前綴「xxx：key」
+    // 去掉 title 前綴「xxx：key」精確對齊
     var keys = Object.keys(world.scenes);
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
       var title = (world.scenes[k] && world.scenes[k].title) || '';
       if (s === title) return k;
-      if (title && (title === s || title.indexOf(s) !== -1 || s.indexOf(k) !== -1)) {
-        // 需雙向包含其一且 key 被包含，避免誤配
-        if (s.indexOf(k) !== -1) return k;
+      if (title) {
+        var cleanTitle = title.replace(/^.+?[：:]\s*/, '').trim();
+        if (cleanTitle && cleanTitle === s) return k;
       }
       if (s.replace(/\s+/g, '') === k) return k;
     }
@@ -102,17 +104,15 @@
   window.validateStrictMeta = function (meta, world, currentScene) {
     if (!meta || typeof meta !== 'object') return { ok: false, reason: 'meta not object' };
     var maxDelta = getMaxDelta();
+    // 5-1: 數值欄位一律調用 parseDeltaNumberStrict，裸數字直接打回
     var numericFields = ['hp', 'sp', 'threat'];
     for (var i = 0; i < numericFields.length; i++) {
       var f = numericFields[i];
       var v = meta[f];
       if (v === undefined || v === null || v === '') continue;
-      // 一律要求經 parseDeltaNumber 後為有限數；裸歧義由 parse 層拒收（見 utils）
-      if (typeof v === 'string') {
-        var t = v.trim();
-        if (/^(null|none|無|nan)$/i.test(t)) continue;
-        // 允許 "90/100" 明確上限格式，或顯式 +/-，其餘裸數字視為可疑但向下相容放行
-        // 真正的嚴格拒收在 window.parseDeltaNumberStrict（測試用）
+      var chkNum = window.parseDeltaNumberStrict(v);
+      if (!chkNum.ok) {
+        return { ok: false, reason: f + ' 格式不合規: ' + chkNum.reason };
       }
     }
     // ability 增量上限
@@ -130,13 +130,16 @@
         });
       }
     });
-    // options 數量（新版相容 suggested_options 別名；normalize 後多為 options）
+    // 5-5: options 數量（統一為 3-4 個；排除「繼續敘事」後計入）
     var opts = meta.options !== undefined ? meta.options : meta.suggested_options;
     if (opts !== undefined && !Array.isArray(opts)) {
       return { ok: false, reason: 'options must be array' };
     }
-    if (Array.isArray(opts) && (opts.length < 1 || opts.length > 5)) {
-      return { ok: false, reason: 'options count out of range' };
+    if (Array.isArray(opts)) {
+      var filteredOpts = opts.filter(function (o) { return !/^繼續敘事/i.test(String(o).trim()); });
+      if (filteredOpts.length < 3 || filteredOpts.length > 4) {
+        return { ok: false, reason: 'options count out of range (expected 3-4, got ' + filteredOpts.length + ')' };
+      }
     }
     // scene 白名單（新版相容 player_scene 別名；normalize 後多為 scene）
     var sceneRaw = (meta.scene !== undefined && meta.scene !== null) ? meta.scene : meta.player_scene;
@@ -218,7 +221,8 @@
         if (bv === undefined) return false;
         return !isTruthyFlag(bv);
       }
-      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(c)) {
+      // 支援中英文裸旗標名稱，如 acceptedHeavenSeal 或 有犧牲flag
+      if (/^[A-Za-z_\u4e00-\u9fa5][A-Za-z0-9_\u4e00-\u9fa5]*$/.test(c)) {
         var bv2 = flagVal(c);
         if (bv2 === undefined) return false;
         return isTruthyFlag(bv2);
@@ -251,11 +255,21 @@
       });
     };
     var keys = Object.keys(world.endings);
+    var defaultEnding = null;
     for (var i = 0; i < keys.length; i++) {
       var e = world.endings[keys[i]];
       var cond = (e && e.condition) || '';
-      if (!cond || /^default$/i.test(String(cond).trim())) continue;
+      if (/^default$/i.test(String(cond).trim())) {
+        defaultEnding = { id: keys[i], condition: cond, result: (e && e.result) || '' };
+        continue;
+      }
+      if (!cond) continue;
       if (evalCond(cond)) return { id: keys[i], condition: cond, result: (e && e.result) || '' };
+    }
+    // 3-4: 檢查 countdown <= 0 且無其他結局命中時觸發 defaultEnding
+    var countdown = game && game.current_arc && game.current_arc.countdown;
+    if (typeof countdown === 'number' && countdown <= 0 && defaultEnding) {
+      return defaultEnding;
     }
     return null;
   };

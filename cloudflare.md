@@ -22,12 +22,12 @@
 | 方法 | 路徑 | 類型 | 功能說明 |
 | --- | --- | --- | --- |
 | `GET` | `/` | 狀態監控 | 健康檢查頁面，顯示已啟用之功能與端點。 |
-| `GET` | `/v1/models` | LLM 代理 | 動態模型清單查詢，支援透傳 `X-Target-URL` 自訂端點。 |
-| `POST` | `/v1/chat/completions` | LLM 代理 | 劇情推演對話與 SSE 串流轉發，支援透傳 `X-Target-URL` 自訂端點。 |
+| `GET` | `/v1/models` | LLM 代理 | 動態模型清單查詢，支援透傳 `X-Target-URL` 自訂端點與 CORS 防護。 |
+| `POST` | `/v1/chat/completions` | LLM 代理 | 劇情推演對話與 SSE 串流轉發（含完整 `\n\n` 分幀、`[DONE]` 透傳與 401 預防）。 |
 | `GET` | `/api/multiagent/characters` | 世界引擎 | 查詢當前劇本所有可魂穿宿主清單（支援 `?story_id=`）。 |
-| `POST` | `/api/multiagent/transmigrate` | 世界引擎 | 玩家神魂奪舍指定角色，回傳宿主感官、位置與開局描述。 |
-| `POST` | `/api/multiagent/reset` | 世界引擎 | 重置世界時鐘 (`tick=1`)、天道警戒 (`alert=10`) 與全員初始站位。 |
-| `POST` | `/api/multiagent/tick` | 世界引擎 | 推進 1 個世界滴答，運算言行破綻偏離度、NPC空間漫遊、進場傳聞。 |
+| `POST` | `/api/multiagent/transmigrate` | 世界引擎 | 玩家神魂奪舍指定角色，回傳宿主感官、位置與開局描述（支援傳入 `state` 同步）。 |
+| `POST` | `/api/multiagent/reset` | 世界引擎 | 顯式新局重置：還原世界時鐘 (`tick=1`)、天道警戒 (`alert=10`) 與全員初始站位。 |
+| `POST` | `/api/multiagent/tick` | 世界引擎 | 推進 1 個世界滴答：雙向狀態同步 (`syncState`)、天道警戒雙向降壓 (善行 flags / threat)、確定性 NPC 漂移、三維態度向量 (`trust/suspicion/fear`)、肉身閃回直覺檢測 (`checkFlashback`)。 |
 | `OPTIONS` | `*` | CORS | 預檢回應，開放跨域與自訂 Header。 |
 
 ---
@@ -66,12 +66,13 @@
 若本機已安裝並登入 Wrangler：
 
 ```bash
-# 1. 登入 Cloudflare 帳號
-npx wrangler login
-
-# 2. 或使用 Cloudflare API Token 部署
+# 1. 設置 Cloudflare Token 與 Account ID (或執行 npx wrangler login)
 $env:CLOUDFLARE_API_TOKEN="<你的_CLOUDFLARE_API_TOKEN>"
-npx wrangler deploy cloudflare_worker.js --name tianyan-worker --compatibility-date 2024-01-01
+$env:CLOUDFLARE_ACCOUNT_ID="<你的_ACCOUNT_ID>"
+
+# 2. 自動編譯並部署
+python build_worker.py
+npx wrangler deploy
 ```
 
 ---

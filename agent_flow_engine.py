@@ -8,6 +8,8 @@ if sys.platform.startswith('win'):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 import json
 import random
+import re
+import unicodedata
 from typing import Dict, List, Any, Optional
 
 class MultiAgentEngine:
@@ -31,12 +33,13 @@ class MultiAgentEngine:
 
         self.story_file = story_file
         self.characters: Dict[str, Any] = self.story_data.get("characters", {})
-        # 場景圖單一真相來源：以 scenes[].scene_exit 為準，
-        # 頂層 spatial_graph 一律由其衍生（缺失則新建，存在則補齊對齊）
+        # 場景圖單一真相來源：以 scenes[].scene_exit 為準
         self.scenes_meta: Dict[str, Any] = self._normalize_scenes_meta(self.story_data.get("scenes", {}))
-        self.spatial_graph: Dict[str, List[str]] = self._sync_spatial_graph(
+        self.directed_exits: Dict[str, List[str]] = self._build_directed_exits(self.scenes_meta)
+        self.undirected_wander: Dict[str, List[str]] = self._sync_spatial_graph(
             self.story_data.get("spatial_graph", {}), self.scenes_meta
         )
+        self.spatial_graph: Dict[str, List[str]] = self.undirected_wander
         
         # 遊戲運行態
         self.tick: int = 1
@@ -78,8 +81,21 @@ class MultiAgentEngine:
         return s.lower() in ("null", "none", "nan", "無")
 
     @classmethod
+    def _build_directed_exits(cls, scenes_meta: Dict[str, Any]) -> Dict[str, List[str]]:
+        """由 scenes[].scene_exit 建立有向出入口圖（玩家位移唯一真相）"""
+        graph: Dict[str, List[str]] = {k: [] for k in scenes_meta.keys()}
+        for key, meta in scenes_meta.items():
+            exits = (meta or {}).get("scene_exit", []) if isinstance(meta, dict) else []
+            for dst in exits or []:
+                if isinstance(dst, str) and dst and dst not in graph[key]:
+                    graph[key].append(dst)
+        for k in graph:
+            graph[k] = sorted(graph[k])
+        return graph
+
+    @classmethod
     def _build_spatial_graph_from_exits(cls, scenes_meta: Dict[str, Any]) -> Dict[str, List[str]]:
-        """由 scenes[].scene_exit 建圖（含反向邊去重，排序穩定）"""
+        """由 scenes[].scene_exit 建無向圖（供 NPC 漫遊使用）"""
         graph: Dict[str, List[str]] = {k: [] for k in scenes_meta.keys()}
         for key, meta in scenes_meta.items():
             exits = (meta or {}).get("scene_exit", []) if isinstance(meta, dict) else []
@@ -90,7 +106,7 @@ class MultiAgentEngine:
                     graph[dst] = []
                 if dst not in graph[key]:
                     graph[key].append(dst)
-                # 反向邊去重：NPC 漫遊用無向圖，定向白名單仍以 scene_exit 為準
+                # 反向邊：NPC 漫遊用無向圖，定向玩家位移仍以 directed_exits 為準
                 if key not in graph[dst]:
                     graph[dst].append(key)
         for k in graph:
@@ -99,7 +115,7 @@ class MultiAgentEngine:
 
     @classmethod
     def _sync_spatial_graph(cls, spatial_graph: Any, scenes_meta: Dict[str, Any]) -> Dict[str, List[str]]:
-        """對齊 spatial_graph：缺失則由 scene_exit 新建，存在則補齊正/反向邊"""
+        """對齊 spatial_graph：缺失則由 scene_exit 新建，存在則補齊正/反向邊（NPC 漫遊圖）"""
         built = cls._build_spatial_graph_from_exits(scenes_meta)
         if not isinstance(spatial_graph, dict) or not spatial_graph:
             return built
@@ -183,17 +199,58 @@ class MultiAgentEngine:
             if loc == scene_name
         ]
 
-    def check_flashback(self, context_text: str) -> List[str]:
-        """檢測本輪文字是否觸發玩家角色的『肉身記憶/閃回直覺』"""
+    def sync_state(self, state: Optional[Dict[str, Any]]):
+        """將前端傳送的狀態 (tick, heaven_alert, char_locations, current_scene, player_char_id) 注入引擎"""
+        if not state or not isinstance(state, dict):
+            return
+        if "tick" in state and isinstance(state["tick"], (int, float)):
+            self.tick = int(state["tick"])
+        if "heaven_alert" in state and isinstance(state["heaven_alert"], (int, float)):
+            self.heaven_alert = int(state["heaven_alert"])
+        if "char_locations" in state and isinstance(state["char_locations"], dict):
+            for cid, loc in state["char_locations"].items():
+                if cid in self.characters and (loc in self.scenes_meta or loc in self.undirected_wander):
+                    self.char_locations[cid] = loc
+        if "current_scene" in state and state["current_scene"] in self.scenes_meta:
+            self.current_scene = state["current_scene"]
+            if self.player_char_id:
+                self.char_locations[self.player_char_id] = self.current_scene
+        if "player_char_id" in state and state["player_char_id"] in self.characters:
+            self.player_char_id = state["player_char_id"]
+
+    def check_flashback(self, context_text: str) -> List[Dict[str, str]]:
+        """檢測本輪文字是否觸發玩家角色的『肉身記憶/閃回直覺』，回傳 (fragment, source) 清單"""
         if not self.player_char_id:
             return []
         
-        triggers = self.characters[self.player_char_id]["somatic_memory"].get("flashback_triggers", {})
+        triggers = self.characters[self.player_char_id].get("somatic_memory", {}).get("flashback_triggers", {})
         active_flashbacks = []
+        occupants = self.get_scene_occupants(self.current_scene)
+        occupant_names = [self.characters[c]["name"] for c in occupants if c in self.characters]
+
         for trigger_key, fragment in triggers.items():
-            # 支援以角色ID、場景名或關鍵字觸發
-            if trigger_key in context_text or (trigger_key in self.get_scene_occupants(self.current_scene)):
-                active_flashbacks.append(fragment)
+            char_info = self.characters.get(trigger_key, {})
+            char_name = char_info.get("name", "")
+            clean_name = re.sub(r'[\（\(].*?[\）\)]', '', char_name) if char_name else ""
+            in_brackets = re.findall(r'[\（\(](.*?)[\）\)]', char_name) if char_name else []
+            char_title = char_info.get("title", "")
+            first_clause = fragment.split('，')[0].split('、')[0] if fragment else ""
+
+            # 支援以角色ID、角色名/別名/稱號、場景名、觸發片段描述或在場角色檢測
+            matched = (
+                trigger_key in context_text or
+                (char_name and char_name in context_text) or
+                (clean_name and len(clean_name) >= 2 and clean_name in context_text) or
+                any(b in context_text for b in in_brackets if len(b) >= 2) or
+                (char_title and len(char_title) >= 2 and char_title in context_text) or
+                (first_clause and len(first_clause) >= 4 and first_clause in context_text) or
+                (len(context_text) >= 4 and context_text in fragment) or
+                trigger_key == self.current_scene or
+                trigger_key in occupants or
+                trigger_key in occupant_names
+            )
+            if matched:
+                active_flashbacks.append({"fragment": fragment, "source": trigger_key})
         return active_flashbacks
 
     def evaluate_dissonance(self, player_input: str) -> float:
@@ -201,28 +258,44 @@ class MultiAgentEngine:
         評估玩家發言相對於原角色人設的破綻偏離度 (簡化啟發式演算法)
         回傳 0.0 ~ 0.3 的破綻增量
         """
-        if not self.player_char_id:
+        if not self.player_char_id or not player_input:
+            return 0.0
+
+        p_input = str(player_input).strip()
+        # 短輸入不判破綻，避免單字打招呼誤殺
+        if len(p_input) < 4:
             return 0.0
 
         p_char = self.characters[self.player_char_id]
-        baseline = p_char["somatic_memory"]["baseline_tone"]
         
-        # 簡單啟發式破綻特徵：
-        # 例如原身冷峻蒼老，若發言帶有現代網路詞、過多顏文字或無厘頭搞笑
-        modern_slang = ["哈", "笑死", "搞毛", "牛逼", "老哥", "ok", "666", "系統", "開掛"]
+        # 繁簡/全半形歸一 + 現代詞彙檢測
+        import unicodedata
+        import re
+        norm_input = unicodedata.normalize("NFKC", p_input)
+        lower_input = norm_input.lower()
+
+        # 現代網路詞彙表（排除文言自然表達）
+        modern_slang = [
+            "笑死", "搞毛", "牛逼", "老哥", "ok", "666", "系統", "系统",
+            "開掛", "开挂", "臥槽", "卧槽", "牛批", "yyds", "bug", "cpu", "打call", "絕絕子", "绝绝子"
+        ]
         dissonance = 0.0
         for slang in modern_slang:
-            if slang in player_input.lower():
+            if slang in lower_input:
                 dissonance += 0.15
 
-        # 斷劍客自稱某家，若多次使用本姑娘/小生等反向風格
-        if self.player_char_id == "char_duanjian" and "小女" in player_input:
+        # 檢測非文言大笑的單獨「哈」或連續「哈哈哈」，排除「哈哈大笑」「仰天長笑」「長笑」「大笑」
+        if re.search(r'(?<![大長長])哈{2,}(?![大長])', norm_input) and not any(w in norm_input for w in ("大笑", "長笑", "长笑", "仰天")):
+            dissonance += 0.10
+
+        # 斷劍客自稱某家，若多次使用本姑娘/小女等反向風格
+        if self.player_char_id == "char_duanjian" and ("小女" in norm_input or "本姑娘" in norm_input):
             dissonance += 0.25
-        elif self.player_char_id == "char_xian_shi" and "求求" in player_input:
+        elif self.player_char_id == "char_xian_shi" and "求求" in norm_input:
             dissonance += 0.3
 
         p_char["dissonance"] = min(1.0, p_char.get("dissonance", 0.0) + dissonance)
-        return dissonance
+        return min(0.3, dissonance)
 
     def build_director_prompt(self, player_action: str) -> Dict[str, Any]:
         """組合給 Story Director LLM 的情境提示詞"""
@@ -259,14 +332,13 @@ class MultiAgentEngine:
         """
         推進 1 個世界滴答 (World Tick)：
         1. 更新玩家位置與破綻
-        2. 更新在場 NPC 對玩家的態度向量
-        3. 後台自主 NPC 的輕量空間漂移
-        4. 天道警戒度推進
+        2. 更新在場 NPC 對玩家的態度向量 (trust, suspicion, fear)
+        3. 後台自主 NPC 的輕量空間漂移 (定量隨機與無向漫遊圖)
+        4. 天道警戒度推進 (支援善行/隱匿/負threat雙向降壓)
         """
         self.tick += 1
 
         # 1. 處理場景轉移（單一真相來源：scenes[].scene_exit，與前端 validateSceneMove 語義一致）
-        # 規則：停留（null/空/同場）→ 允許不動；未知場景 → 拒絕；不在白名單 → 拒絕並回 reason
         raw_scene = meta_output.get("player_scene", None)
         if "player_scene" not in meta_output and "scene" in meta_output:
             raw_scene = meta_output.get("scene")
@@ -296,19 +368,18 @@ class MultiAgentEngine:
                     self.char_locations[self.player_char_id] = new_scene
                     moved = True
 
-        # 2. 處理態度向量浮動
+        # 2. 處理態度向量浮動 (三維全更新：trust, suspicion, fear)
         for change in meta_output.get("attitude_changes", []):
             npc_id = change.get("npc_id")
             if npc_id in self.characters:
                 matrix = self.characters[npc_id].get("attitude_matrix", {})
                 if self.player_char_id in matrix:
                     curr = matrix[self.player_char_id]
-                    curr["trust"] = max(-1.0, min(1.0, curr["trust"] + change.get("trust_delta", 0.0)))
-                    curr["suspicion"] = max(0.0, min(1.0, curr["suspicion"] + change.get("suspicion_delta", 0.0)))
+                    curr["trust"] = max(-1.0, min(1.0, curr.get("trust", 0.0) + change.get("trust_delta", 0.0)))
+                    curr["suspicion"] = max(0.0, min(1.0, curr.get("suspicion", 0.3) + change.get("suspicion_delta", 0.0)))
+                    curr["fear"] = max(0.0, min(1.0, curr.get("fear", 0.0) + change.get("fear_delta", 0.0)))
 
         # 2b. 處理 Meta 明示的 NPC 遷移（npc_movements：僅合法場景 key 才受理）
-        # 新版語義：本輪已由 Meta 明示調度的 NPC 不再參與同輪隨機漂移，
-        # 否則明示進入/離開會被 25% 隨機覆寫，造成前後端 npc_state 對帳分叉。
         rumors: List[str] = []
         explicit_moved: set = set()
         for m in meta_output.get("npc_movements", []) or []:
@@ -318,7 +389,7 @@ class MultiAgentEngine:
             to_scene = m.get("to_scene")
             if npc_id not in self.characters:
                 continue
-            if to_scene not in self.spatial_graph and to_scene not in self.scenes_meta:
+            if to_scene not in self.undirected_wander and to_scene not in self.scenes_meta:
                 continue
             prev_loc = self.char_locations.get(npc_id)
             if prev_loc == to_scene:
@@ -329,27 +400,56 @@ class MultiAgentEngine:
             if to_scene == self.current_scene and prev_loc != self.current_scene:
                 rumors.append(f"【身影乍現】{self.characters[npc_id]['name']} 踏入了【{self.current_scene}】！")
 
-        # 3. 後台自主 NPC 依 agenda 輕量漂移（跳過本輪已明示調度者）
+        # 3. 後台自主 NPC 依 agenda 輕量漂移（跳過本輪已明示調度者，使用定量種子以保證可重現性）
+        rng = random.Random(self.tick)
         for cid, loc in list(self.char_locations.items()):
             if cid in explicit_moved:
                 continue
             if cid != self.player_char_id and loc != self.current_scene:
-                # 20% 機率朝相鄰節點移動
-                if random.random() < 0.25 and loc in self.spatial_graph:
-                    neighbors = self.spatial_graph[loc]
+                # 5% 機率朝相鄰節點移動（NPC漫遊查無向表）
+                if rng.random() < 0.05 and loc in self.undirected_wander:
+                    neighbors = self.undirected_wander[loc]
                     if neighbors:
-                        next_loc = random.choice(neighbors)
+                        next_loc = rng.choice(neighbors)
                         self.char_locations[cid] = next_loc
                         if next_loc == self.current_scene:
                             rumors.append(f"【身影乍現】{self.characters[cid]['name']} 自遠處急行而來，踏入了【{self.current_scene}】！")
 
-        # 4. 天道警戒值微幅提升
-        self.heaven_alert = min(100, self.heaven_alert + 2)
+        # 傳聞去重
+        rumors = list(dict.fromkeys(rumors))
+
+        # 4. 天道警戒度雙向結算（支援旗標與 threat 降壓）
+        flags = meta_output.get("flags") or {}
+        threat_delta = 0
+        impact = meta_output.get("impact") or {}
+        if isinstance(impact, dict) and "threat" in impact:
+            try:
+                threat_delta = float(impact["threat"])
+            except (ValueError, TypeError):
+                threat_delta = 0
+        elif "threat" in meta_output:
+            try:
+                threat_delta = float(str(meta_output["threat"]).replace("+", ""))
+            except (ValueError, TypeError):
+                threat_delta = 0
+
+        calm_keywords = ("斷信標", "断信标", "超度", "改命", "安撫", "安抚", "平息", "隱匿", "隐匿", "消弭", "沉寂", "避劫", "匿跡", "匿迹")
+        calm_hit = False
+        for k, v in flags.items():
+            if any(kw in str(k) for kw in calm_keywords) and v:
+                calm_hit = True
+                break
+
+        if calm_hit or threat_delta < 0:
+            relief = 15 if calm_hit else int(abs(threat_delta))
+            self.heaven_alert = max(0, min(100, self.heaven_alert - relief))
+        else:
+            self.heaven_alert = min(100, self.heaven_alert + 2)
 
         for r in rumors:
             self.world_event_log.append(f"[TICK {self.tick}] {r}")
 
-        # 全員站位快照（char_id→scene）與對宿主態度快照（供前端對帳 npc_state）
+        # 全員站位快照（char_id→scene）與對宿主態度快照（三維態度向量）
         attitude_snapshot: Dict[str, Dict[str, float]] = {}
         for cid, cdata in self.characters.items():
             if cid == self.player_char_id:
@@ -360,6 +460,7 @@ class MultiAgentEngine:
                 attitude_snapshot[cid] = {
                     "trust": att.get("trust", 0.0),
                     "suspicion": att.get("suspicion", 0.3),
+                    "fear": att.get("fear", 0.0),
                 }
 
         return {
