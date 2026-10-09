@@ -267,11 +267,24 @@ class MultiAgentEngine {
     return active;
   }
 
+  static parseThreatDelta(raw) {
+    if (raw === undefined || raw === null) return 0;
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    const s = String(raw).trim();
+    if (!s || /^(null|none|nan|無)$/i.test(s)) return 0;
+    if (s.includes("/")) return 0; // 絕對值形式無法換算增量，回 0（與 agent_flow_engine.py 一致）
+    if (/^[+-]/.test(s)) {
+      const n = Number(s);
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0; // 裸數字歧義一律回 0
+  }
+
   evaluateDissonance(playerInput = "") {
     if (!this.playerCharId || !this.characters[this.playerCharId]) return 0.0;
     const pChar = this.characters[this.playerCharId];
     const text = String(playerInput || "").trim();
-    if (text.length < 4) return 0.0;
+    if (!text) return 0.0;
     const normText = text.normalize ? text.normalize("NFKC") : text;
     const lower = normText.toLowerCase();
 
@@ -283,6 +296,11 @@ class MultiAgentEngine {
     for (const slang of modernSlang) {
       if (lower.includes(slang)) dissonance += 0.15;
     }
+    if (dissonance > 0) {
+      pChar.dissonance = Math.min(1.0, (pChar.dissonance || 0.0) + dissonance);
+      return Math.min(0.3, dissonance);
+    }
+    if (text.length < 4) return 0.0;
 
     if (/(?<![大長長])哈{2,}(?![大長])/.test(normText) && !["大笑", "長笑", "长笑", "仰天"].some(w => normText.includes(w))) {
       dissonance += 0.10;
@@ -391,9 +409,9 @@ class MultiAgentEngine {
     const flags = metaOutput.flags || {};
     let threatDelta = 0;
     if (metaOutput.impact && metaOutput.impact.threat !== undefined) {
-      threatDelta = Number(metaOutput.impact.threat) || 0;
+      threatDelta = this.constructor.parseThreatDelta(metaOutput.impact.threat);
     } else if (metaOutput.threat !== undefined) {
-      threatDelta = Number(String(metaOutput.threat).replace('+', '')) || 0;
+      threatDelta = this.constructor.parseThreatDelta(metaOutput.threat);
     }
     const calmKeywords = ["斷信標", "断信标", "超度", "改命", "安撫", "安抚", "平息", "隱匿", "隐匿", "消弭", "沉寂", "避劫", "匿跡", "匿迹"];
     const calmHit = Object.keys(flags).some(k => calmKeywords.some(kw => k.includes(kw)) && flags[k]);

@@ -115,21 +115,38 @@
         return { ok: false, reason: f + ' 格式不合規: ' + chkNum.reason };
       }
     }
-    // ability 增量上限
-    var pairs = [];
+    // ability 增量上限：增量形式（顯式 +/- 或 isDelta:true）絕對值超過 maxDelta 直接判失敗；
+    // 無符號絕對值形式（isDelta:false / "名=30"）視為定值寫入，不受增量上限約束。
+    var overDelta = [];
     ['upd_ability', 'update_abilities', 'upd_abilities'].forEach(function (k) {
       var raw = meta[k];
-      if (typeof raw === 'string' && raw.trim()) pairs.push(raw);
-      else if (raw && typeof raw === 'object') {
+      if (typeof raw === 'string' && raw.trim()) {
+        // 字串形式逐項抽取「=」後的首個帶符號數字（如 "名=+5/100"）；無符號視為絕對值跳過
+        var normRaw = String(raw).replace(/＝/g, '=').replace(/＋/g, '+').replace(/－/g, '-');
+        normRaw.split(/[;；、,，\n]+/).forEach(function (part) {
+          var eq = part.indexOf('=');
+          if (eq === -1) return;
+          var vStr = part.slice(eq + 1).trim().split('/')[0].trim();
+          if (/^[+-]/.test(vStr)) {
+            var num = Number(vStr);
+            if (Number.isFinite(num) && Math.abs(num) > maxDelta) overDelta.push(part.trim());
+          }
+        });
+      } else if (raw && typeof raw === 'object') {
         Object.keys(raw).forEach(function (name) {
           var e = raw[name];
-          var d = (e && typeof e === 'object') ? e.val : e;
-          if (typeof d === 'number' && Math.abs(d) > maxDelta && !(e && e.isDelta === false)) {
-            pairs.push(name + '=' + d);
+          var isDeltaForm = (e && typeof e === 'object') ? e.isDelta !== false : (typeof e === 'number');
+          // 純數字物件值一律視為增量（與 game.js applyImpact 語義一致）；顯式 isDelta:false 為絕對值
+          var d = (e && typeof e === 'object') ? Number(e.val) : Number(e);
+          if (isDeltaForm && Number.isFinite(d) && Math.abs(d) > maxDelta) {
+            overDelta.push(name + '=' + d);
           }
         });
       }
     });
+    if (overDelta.length > 0) {
+      return { ok: false, reason: 'upd_ability 增量超限(>|' + maxDelta + '|): ' + overDelta.join('、') };
+    }
     // 5-5: options 數量（統一為 3-4 個；排除「繼續敘事」後計入）
     var opts = meta.options !== undefined ? meta.options : meta.suggested_options;
     if (opts !== undefined && !Array.isArray(opts)) {

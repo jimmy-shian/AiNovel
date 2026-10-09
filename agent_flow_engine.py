@@ -253,6 +253,34 @@ class MultiAgentEngine:
                 active_flashbacks.append({"fragment": fragment, "source": trigger_key})
         return active_flashbacks
 
+    # 現代網路詞彙表（排除文言自然表達）：類級常量，前後端（Worker 鏡像）保持一致
+    MODERN_SLANG = [
+        "笑死", "搞毛", "牛逼", "老哥", "ok", "666", "系統", "系统",
+        "開掛", "开挂", "臥槽", "卧槽", "牛批", "yyds", "bug", "cpu", "打call", "絕絕子", "绝绝子"
+    ]
+
+    @staticmethod
+    def parse_threat_delta(raw: Any) -> float:
+        """解析 threat 增量：顯式 +/- 為相對增量，"90/100" 取首段絕對值語義（此處僅取符號方向，
+        呼叫方無當前值可換算，故絕對值形式回 0 由預設 +2 推進）；裸數字歧義一律回 0，避免誤讀。"""
+        if raw is None:
+            return 0.0
+        if isinstance(raw, (int, float)):
+            return float(raw)
+        s = str(raw).strip()
+        if not s or s.lower() in ("null", "none", "nan", "無"):
+            return 0.0
+        head = s.split("/")[0].strip() if "/" in s else s
+        if "/" in s:
+            # 絕對值形式：無法換算增量，回 0（不觸發降壓分支）
+            return 0.0
+        if head.startswith("+") or head.startswith("-"):
+            try:
+                return float(head)
+            except (ValueError, TypeError):
+                return 0.0
+        return 0.0
+
     def evaluate_dissonance(self, player_input: str) -> float:
         """
         評估玩家發言相對於原角色人設的破綻偏離度 (簡化啟發式演算法)
@@ -262,27 +290,30 @@ class MultiAgentEngine:
             return 0.0
 
         p_input = str(player_input).strip()
-        # 短輸入不判破綻，避免單字打招呼誤殺
-        if len(p_input) < 4:
+        if not p_input:
             return 0.0
 
         p_char = self.characters[self.player_char_id]
-        
+
         # 繁簡/全半形歸一 + 現代詞彙檢測
         import unicodedata
         import re
         norm_input = unicodedata.normalize("NFKC", p_input)
         lower_input = norm_input.lower()
 
-        # 現代網路詞彙表（排除文言自然表達）
-        modern_slang = [
-            "笑死", "搞毛", "牛逼", "老哥", "ok", "666", "系統", "系统",
-            "開掛", "开挂", "臥槽", "卧槽", "牛批", "yyds", "bug", "cpu", "打call", "絕絕子", "绝绝子"
-        ]
+        # 現代網路詞彙優先判定：短輸入如 "666"、「臥槽」亦直接命中，不受短輸入免判保護
+        modern_slang = self.MODERN_SLANG
         dissonance = 0.0
         for slang in modern_slang:
             if slang in lower_input:
                 dissonance += 0.15
+        if dissonance > 0:
+            p_char["dissonance"] = min(1.0, p_char.get("dissonance", 0.0) + dissonance)
+            return min(0.3, dissonance)
+
+        # 短輸入不判破綻，避免單字打招呼誤殺（slang 已在上方先行處理）
+        if len(p_input) < 4:
+            return 0.0
 
         # 檢測非文言大笑的單獨「哈」或連續「哈哈哈」，排除「哈哈大笑」「仰天長笑」「長笑」「大笑」
         if re.search(r'(?<![大長長])哈{2,}(?![大長])', norm_input) and not any(w in norm_input for w in ("大笑", "長笑", "长笑", "仰天")):
@@ -420,18 +451,12 @@ class MultiAgentEngine:
 
         # 4. 天道警戒度雙向結算（支援旗標與 threat 降壓）
         flags = meta_output.get("flags") or {}
-        threat_delta = 0
+        threat_delta = 0.0
         impact = meta_output.get("impact") or {}
         if isinstance(impact, dict) and "threat" in impact:
-            try:
-                threat_delta = float(impact["threat"])
-            except (ValueError, TypeError):
-                threat_delta = 0
+            threat_delta = self.parse_threat_delta(impact["threat"])
         elif "threat" in meta_output:
-            try:
-                threat_delta = float(str(meta_output["threat"]).replace("+", ""))
-            except (ValueError, TypeError):
-                threat_delta = 0
+            threat_delta = self.parse_threat_delta(meta_output["threat"])
 
         calm_keywords = ("斷信標", "断信标", "超度", "改命", "安撫", "安抚", "平息", "隱匿", "隐匿", "消弭", "沉寂", "避劫", "匿跡", "匿迹")
         calm_hit = False
