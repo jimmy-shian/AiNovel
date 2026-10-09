@@ -215,7 +215,7 @@ window.CONFIG = {
       }
     } else {
       if (this.customChatEndpoint) urls.push(this.customChatEndpoint);
-      if (!urls.includes(window.SETTINGS.ENDPOINTS.directProxy)) urls.push(window.SETTINGS.ENDPOINTS.directProxy);
+      if (!urls.includes(window.SETTINGS.ENDPOINTS.direct)) urls.push(window.SETTINGS.ENDPOINTS.direct);
     }
     return urls;
   }

@@ -9,7 +9,7 @@ window.applyImpact = function(impact) {
   // 1. 氣血 (HP) 變動
   if (impact.hp !== undefined && impact.hp !== 0) {
     p.hp = Math.min(100, Math.max(0, p.hp + impact.hp));
-    changes.push(['生命', impact.hp]);
+    changes.push(['氣血', impact.hp]);
   }
   // 2. 靈力 (SP) 變動
   if (impact.sp !== undefined && impact.sp !== 0) {

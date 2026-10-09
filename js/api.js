@@ -368,7 +368,7 @@ window.buildUnifiedStoryPrompt = function (action, isFirstMove) {
 【原身慣用語氣】：${playerChar.somatic_memory?.baseline_tone || '冷靜凝重'}
 【破綻張力警示】：你剛剛魂穿接管此肉身，言行若嚴重違背原身性格，在場 NPC 會起疑盤問！`;
 
-  content += `\n\n【角色數值狀態】\n位置：${g.scene}（${scene.title || g.scene}）\n生命：${g.player.hp} | 靈力：${g.player.sp} | 業力：${g.player.threat}`;
+  content += `\n\n【角色數值狀態】\n位置：${g.scene}（${scene.title || g.scene}）\n氣血：${g.player.hp} | 靈力：${g.player.sp} | 業力：${g.player.threat}`;
   if (g.player.abilities) {
     const abList = Object.entries(g.player.abilities)
       .map(([k, v]) => {
